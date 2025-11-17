@@ -11,9 +11,9 @@ defmodule UrbanFleet.Client do
     """)
 
     # Intentar conectar al servidor
-    if Node.connect(:server@schwarz) do
+    if Node.connect(:"server@localhost") do
       IO.puts("✅ Connected to UrbanFleet Server.")
-      case :rpc.call(:server@schwarz, Process, :whereis, [:server]) do
+      case :rpc.call(:"server@localhost", Process, :whereis, [:server]) do
         pid when is_pid(pid) ->
           IO.puts("🖥️  Remote server process found.")
           command_loop(pid, nil)
@@ -22,7 +22,7 @@ defmodule UrbanFleet.Client do
           IO.puts("⚠️ Server process not found. Make sure it's running.")
       end
     else
-      IO.puts("❌ Could not connect to remote node (:server@schwarz)")
+      IO.puts("❌ Could not connect to remote node (:\"server@localhost\")")
     end
   end
 
@@ -68,20 +68,20 @@ defmodule UrbanFleet.Client do
 
           _ ->
             # Enviar comando al servidor (ahora enviamos el estado local 'user' y esperamos {msg, new_state})
-            case :rpc.call(:server@schwarz, GenServer, :call, [:server, {:remote_command, cmd, user}]) do
+            case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
               {:ok, {response, new_state}} ->
                 IO.puts(response)
 
                 cond do
                   is_map(new_state) ->
                     # successful login/updated state -> register this client node for callbacks
-                    :rpc.call(:server@schwarz, GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
+                    :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
                     command_loop(pid, new_state)
 
                   new_state == :logout ->
                     # server indicated logout -> unregister and clear local state
                     if user && Map.get(user, :username) do
-                      :rpc.call(:server@schwarz, GenServer, :call, [:server, {:unregister_client, user.username}])
+                      :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
                     end
                     command_loop(pid, nil)
 
