@@ -45,23 +45,97 @@ end
     {:noreply, state}
   end
 
- def handle_call({:remote_command, input}, _from, state) do
-  input = String.trim(input)
+  # --- NUEVO: helper definido temprano para evitar error de referencia ---
+  defp format_datetime(dt) when is_struct(dt, DateTime) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
 
-  # Cada llamada remota empieza sin usuario asociado (cliente maneja su sesión)
-  {response, _user} =
-    case process_remote_command(input, nil) do
-      {:ok, msg, _} -> {msg, nil}
-      {:error, msg, _} -> {msg, nil}
+  # Reemplazamos el handler de llamadas remotas para aceptar el estado del cliente
+  def handle_call({:remote_command, input, client}, _from, state) do
+    input = String.trim(input)
+
+    case process_remote_command(input, client) do
+      {:ok, msg, new_client} ->
+        # devolver estructura con el nuevo estado para que el cliente pueda actualizarse directamente
+        {:reply, {:ok, {msg, new_client}}, state}
+
+      {:error, msg, client_state} ->
+        {:reply, {:error, {msg, client_state}}, state}
     end
+  end
 
-  {:reply, {:ok, response}, state}
-end
+  # Register/unregister client nodes so server can push notifications
+  @impl true
+  def handle_call({:register_client, %{username: username} = _user_map, client_node}, _from, state) do
+    sessions = Map.put(state.sessions, username, client_node)
+    Logger.info("Registered client #{username} at #{inspect(client_node)}")
+    {:reply, :ok, %{state | sessions: sessions}}
+  end
 
+  @impl true
+  def handle_call({:unregister_client, username}, _from, state) do
+    sessions = Map.delete(state.sessions, username)
+    Logger.info("Unregistered client #{username}")
+    {:reply, :ok, %{state | sessions: sessions}}
+  end
 
   @impl true
   def handle_info({:new_client, pid}, state) do
     Logger.info("Nuevo cliente conectado: #{inspect(pid)}")
+    {:noreply, state}
+  end
+
+  # Notificaciones desde procesos Trip
+  @impl true
+  def handle_info({:trip_completed, trip_state}, state) do
+    msg = "✅ Viaje completado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
+    IO.puts("\n" <> msg)
+    notify_user_by_name(trip_state.client, "✅ Tu viaje #{trip_state.id} fue completado. Conductor: #{trip_state.driver}", state)
+    notify_user_by_name(trip_state.driver, "✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}", state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:trip_expired, trip_state}, state) do
+    msg = "⚠️ Viaje expirado: #{trip_state.id} | Cliente: #{trip_state.client} | Origen: #{trip_state.origin} → Destino: #{trip_state.destination}"
+    IO.puts("\n" <> msg)
+    notify_user_by_name(trip_state.client, "⚠️ Tu viaje #{trip_state.id} expiró sin conductor.", state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:trip_cancelled, trip_state}, state) do
+    msg = "🛑 Viaje cancelado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
+    IO.puts("\n" <> msg)
+    notify_user_by_name(trip_state.client, "🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.", state)
+    notify_user_by_name(trip_state.driver, "🛑 Cancelaste el viaje #{trip_state.id}. Se aplicó penalización.", state)
+    {:noreply, state}
+  end
+
+  # Tick updates from trips: remaining ms (notify both client and driver if connected)
+  @impl true
+  def handle_info({:trip_tick, trip_id, remaining_ms}, state) do
+    seconds = div(remaining_ms, 1000)
+
+    # Try to get trip state to determine client/driver; ignore errors if trip not found
+    trip_info =
+      try do
+        UrbanFleet.Trip.get_state(trip_id)
+      rescue
+        _ -> nil
+      end
+
+    # Print compact progress on server
+    IO.write("\r⏳ Trip #{trip_id} remaining: #{seconds}s   ")
+
+    if trip_info do
+      notify_user_by_name(trip_info.client, "⏳ Tu viaje #{trip_id} restante: #{seconds}s", state)
+
+      if trip_info.driver do
+        notify_user_by_name(trip_info.driver, "⏳ Viaje #{trip_id} restante: #{seconds}s (cliente: #{trip_info.client})", state)
+      end
+    end
+
     {:noreply, state}
   end
 
@@ -158,7 +232,20 @@ end
     {:continue, user}
   end
 
-  # --- CONNECTION ---
+  # ==============================
+  # REMOTE COMMAND PROCESSING (RPC from clients)
+  # Each function returns {:ok, message, new_client_state} or {:error, message, client_state}
+  # ==============================
+
+  # Aliases / comandos cortos (añadir cancel alias)
+  defp process_remote_command("request " <> args, client), do: process_remote_command("request_trip " <> args, client)
+  defp process_remote_command("accept " <> id, client), do: process_remote_command("accept_trip " <> id, client)
+  defp process_remote_command("trips", client), do: process_remote_command("list_trips", client)
+  defp process_remote_command("score", client), do: process_remote_command("my_score", client)
+  defp process_remote_command("rank", client), do: process_remote_command("ranking", client)
+  defp process_remote_command("rank " <> role, client) when role in ["client", "driver"], do: process_remote_command("ranking " <> role, client)
+  defp process_remote_command("cancel " <> id, client), do: process_remote_command("cancel_trip " <> id, client)
+
   defp process_remote_command("connect " <> args, nil) do
     case String.split(args) do
       [username, password, role] when role in ["client", "driver"] ->
@@ -166,10 +253,10 @@ end
 
         case UrbanFleet.UserManager.register_or_login(username, password, role_atom) do
           {:ok, :registered, user} ->
-            {:ok, "✨ Bienvenido #{username}! Registrado como #{role}.", user}
+            {:ok, "✨ Registrado #{username} como #{role}.", %{username: username, role: role_atom}}
 
           {:ok, :logged_in, user} ->
-            {:ok, "✅ Bienvenido de nuevo #{username}!", user}
+            {:ok, "✅ Bienvenido de nuevo #{username}!", %{username: username, role: role_atom}}
 
           {:error, :invalid_password} ->
             {:error, "❌ Contraseña incorrecta.", nil}
@@ -180,123 +267,136 @@ end
     end
   end
 
-  defp process_remote_command(_, user), do: {:error, "Comando desconocido o no autorizado.", user}
+  # cancel_trip -> for drivers (cancel after accepting)
+  defp process_remote_command("cancel_trip " <> trip_id, %{role: :driver} = user) do
+    case UrbanFleet.Trip.cancel_trip(String.trim(trip_id), user.username) do
+      {:ok, trip} ->
+        {:ok, "🛑 Viaje #{trip.id} cancelado. Penalización aplicada al conductor.", user}
 
-  defp process_command("connect " <> _, user) do
-    IO.puts("✗ Ya estás conectado como #{user.username}")
-    {:continue, user}
+      {:error, :cannot_cancel} ->
+        {:error, "⚠️ No puedes cancelar este viaje (no estás asignado o no está en progreso).", user}
+
+      {:error, reason} ->
+        {:error, "❌ Error al cancelar viaje: #{inspect(reason)}", user}
+    end
   end
 
-  defp process_command("disconnect", %{username: name}) do
-    IO.puts("👋 Desconectado. Hasta luego #{name}!")
-    {:continue, nil}
-  end
-
-  defp process_command("disconnect", nil) do
-    IO.puts("✗ No estás conectado")
-    {:continue, nil}
-  end
-
-  # --- CLIENT COMMANDS ---
-  defp process_command("request_trip " <> args, %{role: :client} = user) do
+  # request_trip -> only for clients (handle already_has_active_trip)
+  defp process_remote_command("request_trip " <> args, %{role: :client} = user) do
     case parse_trip_args(args) do
       {:ok, origin, destination} ->
         case UrbanFleet.Location.validate_locations([origin, destination]) do
           :ok ->
             case UrbanFleet.TripSupervisor.create_trip(user.username, origin, destination) do
               {:ok, trip_id} ->
-                IO.puts("""
+                msg = """
                 ✅ Viaje solicitado!
                 ID: #{trip_id}
                 Ruta: #{origin} → #{destination}
-                Esperando conductor... (expira en 20s)
-                """)
+                Esperando conductor... (expira en 60s)
+                """
+                {:ok, String.trim(msg), user}
+
+              {:error, :already_has_active_trip} ->
+                {:error, "⚠️ Ya tienes un viaje activo. No puedes solicitar otro hasta que termine.", user}
 
               {:error, reason} ->
-                IO.puts("❌ No se pudo crear el viaje: #{inspect(reason)}")
+                {:error, "❌ No se pudo crear el viaje: #{inspect(reason)}", user}
             end
 
           {:error, invalid} ->
-            IO.puts("⚠️ Localizaciones inválidas: #{Enum.join(invalid, ", ")}")
+            {:error, "⚠️ Localizaciones inválidas: #{Enum.join(invalid, ", ")}", user}
         end
 
       :error ->
-        IO.puts("✗ Uso: request_trip origen=<loc> destino=<loc>")
+        {:error, "✗ Uso: request <dest>  (o request_trip origen=.. destino=.. )", user}
     end
-
-    {:continue, user}
   end
 
-  # --- DRIVER COMMANDS ---
-  defp process_command("list_trips", %{role: :driver} = user) do
+  # list_trips -> for drivers
+  defp process_remote_command("list_trips", %{role: :driver} = user) do
     trips = UrbanFleet.Trip.list_available()
 
     if Enum.empty?(trips) do
-      IO.puts("🚫 No hay viajes disponibles por ahora.")
+      {:ok, "🚫 No hay viajes disponibles por ahora.", user}
     else
-      IO.puts("\n🗺️  Viajes disponibles:\n" <> String.duplicate("─", 60))
+      lines =
+        trips
+        |> Enum.map(fn trip ->
+          "ID: #{trip.id}\nCliente: #{trip.client}\nRuta: #{trip.origin} → #{trip.destination}\nCreado: #{format_datetime(trip.created_at)}\n"
+        end)
+        |> Enum.join("\n" <> String.duplicate("─", 40) <> "\n")
 
-      Enum.each(trips, fn trip ->
-        IO.puts("""
-        ID: #{trip.id}
-        Cliente: #{trip.client}
-        Ruta: #{trip.origin} → #{trip.destination}
-        Creado: #{format_datetime(trip.created_at)}
-        """)
-      end)
+      {:ok, lines, user}
     end
-
-    {:continue, user}
   end
 
-  defp process_command("accept_trip " <> trip_id, %{role: :driver} = user) do
+  # accept_trip -> for drivers
+  defp process_remote_command("accept_trip " <> trip_id, %{role: :driver} = user) do
     case UrbanFleet.Trip.accept_trip(String.trim(trip_id), user.username) do
       {:ok, trip} ->
-        IO.puts("""
+        msg = """
         ✅ Viaje aceptado!
         Cliente: #{trip.client}
         Ruta: #{trip.origin} → #{trip.destination}
         Duración: ~20s
         Ganarás +15 puntos al completarlo.
-        """)
+        """
+        {:ok, String.trim(msg), user}
 
       {:error, :trip_not_available} ->
-        IO.puts("⚠️ El viaje ya no está disponible.")
+        {:error, "⚠️ El viaje ya no está disponible.", user}
 
       {:error, reason} ->
-        IO.puts("❌ Error al aceptar viaje: #{inspect(reason)}")
+        {:error, "❌ Error al aceptar viaje: #{inspect(reason)}", user}
     end
-
-    {:continue, user}
   end
 
-  # --- GENERAL ---
-  defp process_command("my_score", user) when not is_nil(user) do
-    case UrbanFleet.UserManager.get_score(user.username) do
+  # my_score -> any logged user
+  defp process_remote_command("my_score", %{username: uname} = user) do
+    case UrbanFleet.UserManager.get_score(uname) do
       {:ok, score} ->
-        IO.puts("⭐ Puntuación de #{user.username}: #{score} puntos")
+        {:ok, "⭐ Puntuación de #{uname}: #{score} puntos", user}
 
       _ ->
-        IO.puts("⚠️ No se pudo obtener la puntuación.")
+        {:error, "⚠️ No se pudo obtener la puntuación.", user}
     end
-
-    {:continue, user}
   end
 
-  defp process_command("ranking", user) do
-    show_ranking(nil)
-    {:continue, user}
+  # ranking (global) and ranking <role>
+  defp process_remote_command("ranking", user) do
+    ranking = UrbanFleet.UserManager.get_ranking(nil)
+    msg = format_ranking(ranking, "🏆 RANKING GLOBAL")
+    {:ok, msg, user}
   end
 
-  defp process_command("ranking " <> role, user) when role in ["client", "driver"] do
-    show_ranking(String.to_atom(role))
-    {:continue, user}
+  defp process_remote_command("ranking " <> role, user) when role in ["client", "driver"] do
+    role_atom = String.to_atom(role)
+    ranking = UrbanFleet.UserManager.get_ranking(role_atom)
+    title = if role_atom == :client, do: "👥 RANKING CLIENTES", else: "🚗 RANKING CONDUCTORES"
+    msg = format_ranking(ranking, title)
+    {:ok, msg, user}
   end
 
-  defp process_command(cmd, user) do
-    IO.puts("❓ Comando desconocido: #{cmd}")
-    IO.puts("Escribe 'help' o 'help_admin' para ver los disponibles.")
-    {:continue, user}
+  # disconnect -> logs out the client (client should drop its local state)
+  defp process_remote_command("disconnect", %{username: name} = _user) do
+    {:ok, "👋 Desconectado. Hasta luego #{name}!", :logout}
+  end
+
+  # fallback for unknown or unauthorized remote commands
+  defp process_remote_command(_cmd, nil), do: {:error, "Comando desconocido o no autorizado. Usa 'connect' primero.", nil}
+  defp process_remote_command(cmd, user), do: {:error, "Comando desconocido o no autorizado: #{cmd}", user}
+
+  # Helper to format ranking lists
+  defp format_ranking(list, title) do
+    header = "\n#{title}\n" <> String.duplicate("═", 50) <> "\n"
+    body =
+      list
+      |> Enum.with_index(1)
+      |> Enum.map(fn {u, idx} -> "#{idx}. #{u.username} (#{u.role}) - #{u.score} puntos" end)
+      |> Enum.join("\n")
+
+    header <> body <> "\n"
   end
 
   # ==============================
@@ -367,47 +467,40 @@ end
   defp parse_trip_args(args) do
     parts = String.split(args)
 
-    origin =
-      Enum.find_value(parts, fn part ->
-        case String.split(part, "=") do
-          ["origen", loc] -> loc
-          _ -> nil
-        end
-      end)
+    # Si se usan claves (origen=..., destino=...), mantener compatibilidad
+    if Enum.any?(parts, &String.contains?(&1, "=")) do
+      origin =
+        Enum.find_value(parts, fn part ->
+          case String.split(part, "=") do
+            ["origen", loc] -> loc
+            _ -> nil
+          end
+        end)
 
-    destination =
-      Enum.find_value(parts, fn part ->
-        case String.split(part, "=") do
-          ["destino", loc] -> loc
-          _ -> nil
-        end
-      end)
+      destination =
+        Enum.find_value(parts, fn part ->
+          case String.split(part, "=") do
+            ["destino", loc] -> loc
+            _ -> nil
+          end
+        end)
 
-    if origin && destination, do: {:ok, origin, destination}, else: :error
-  end
-
-  defp show_ranking(role) do
-    title =
-      case role do
-        nil -> "🏆 RANKING GLOBAL"
-        :client -> "👥 RANKING CLIENTES"
-        :driver -> "🚗 RANKING CONDUCTORES"
+      if origin && destination, do: {:ok, origin, destination}, else: :error
+    else
+      # Forma corta: "request <dest>"
+      dest = List.first(parts) |> to_string() |> String.trim()
+      if dest != "" do
+        origin = "Centro"  # origen por defecto
+        {:ok, origin, dest}
+      else
+        :error
       end
-
-    IO.puts("\n#{title}\n" <> String.duplicate("═", 50))
-
-    UrbanFleet.UserManager.get_ranking(role)
-    |> Enum.with_index(1)
-    |> Enum.each(fn {user, rank} ->
-      IO.puts("#{rank}. #{user.username} (#{user.role}) - #{user.score} puntos")
-    end)
-
-    IO.puts("")
+    end
   end
 
-  defp format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-
+  # ==============================
   # Bucle del CLI local del servidor
+  # ==============================
 defp server_cli_loop do
   prompt = IO.ANSI.light_blue_background() <> IO.ANSI.black() <> "[Server-Admin] > " <> IO.ANSI.reset()
   input = IO.gets(prompt)
@@ -488,5 +581,27 @@ defp process_server_command(""), do: :continue
 defp process_server_command(cmd) do
   IO.puts("❓ Comando desconocido: #{cmd}. Escribe 'help' para ver los comandos.")
   :continue
+end
+
+# --- NUEVO: helper para notificar usuarios registrados ---
+# Busca username en state.sessions y envía la notificación al nodo o pid correspondiente.
+defp notify_user_by_name(username, message, state) when is_binary(username) do
+  case Map.get(state.sessions, username) do
+    nil ->
+      :no_session
+
+    node when is_atom(node) ->
+      # Ejecutar la función notify/1 en el módulo UrbanFleet.Client del nodo remoto
+      :rpc.cast(node, UrbanFleet.Client, :notify, [message])
+      :ok
+
+    pid when is_pid(pid) ->
+      # Si por alguna razón guardamos PID local, enviamos mensaje directo
+      send(pid, {:notify, message})
+      :ok
+
+    _ ->
+      :no_session
+  end
 end
 end

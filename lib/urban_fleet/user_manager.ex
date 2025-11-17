@@ -34,6 +34,10 @@ defmodule UrbanFleet.UserManager do
     GenServer.cast(__MODULE__, {:trip_expired, client_username, trip_id})
   end
 
+  def trip_cancelled(driver_username, trip_id) do
+    GenServer.cast(__MODULE__, {:driver_cancelled, driver_username, trip_id})
+  end
+
   # Server Callbacks
 
   @impl true
@@ -112,9 +116,15 @@ defmodule UrbanFleet.UserManager do
 
   @impl true
   def handle_cast({:trip_expired, client_username, trip_id}, users) do
-    Logger.warn("Trip #{trip_id} expired - penalizing client")
+    # Previously penalized client on expiration; now we do not penalize per latest requirements
+    Logger.warn("Trip #{trip_id} expired - no penalty for client (policy changed)")
+    {:noreply, users}
+  end
 
-    new_users = update_score(users, client_username, -5)
+  @impl true
+  def handle_cast({:driver_cancelled, driver_username, trip_id}, users) do
+    Logger.warn("Trip #{trip_id} cancelled by driver #{driver_username} - penalizing driver")
+    new_users = update_score(users, driver_username, -10)
     save_users(new_users)
     {:noreply, new_users}
   end
@@ -122,9 +132,14 @@ defmodule UrbanFleet.UserManager do
   # Private Helper Functions
 
   defp update_score(users, username, points) do
-    Map.update!(users, username, fn user ->
-      %{user | score: user.score + points}
-    end)
+    case Map.get(users, username) do
+      nil ->
+        Logger.warn("Attempted to update score for unknown user #{username}. Ignoring.")
+        users
+
+      user ->
+        Map.put(users, username, %{user | score: user.score + points})
+    end
   end
 
   defp hash_password(password) do

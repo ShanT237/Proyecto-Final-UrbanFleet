@@ -18,22 +18,28 @@ defmodule UrbanFleet.TripSupervisor do
   Returns {:ok, trip_id} or {:error, reason}
   """
   def create_trip(client_username, origin, destination) do
-    trip_id = generate_trip_id()
+    # Check if client already has an active trip
+    if client_has_active_trip?(client_username) do
+      {:error, :already_has_active_trip}
+    else
+      trip_id = generate_trip_id()
 
-    trip_data = %{
-      id: trip_id,
-      client: client_username,
-      origin: origin,
-      destination: destination
-    }
+      trip_data = %{
+        id: trip_id,
+        client: client_username,
+        origin: origin,
+        destination: destination
+      }
 
-    case DynamicSupervisor.start_child(__MODULE__, {UrbanFleet.Trip, trip_data}) do
-      {:ok, _pid} ->
-        Logger.info("Trip #{trip_id} created successfully")
-        {:ok, trip_id}
-      {:error, reason} ->
-        Logger.error("Failed to create trip: #{inspect(reason)}")
-        {:error, reason}
+      case DynamicSupervisor.start_child(__MODULE__, {UrbanFleet.Trip, trip_data}) do
+        {:ok, _pid} ->
+          Logger.info("Trip #{trip_id} created successfully")
+          {:ok, trip_id}
+
+        {:error, reason} ->
+          Logger.error("Failed to create trip: #{inspect(reason)}")
+          {:error, reason}
+      end
     end
   end
 
@@ -63,8 +69,17 @@ defmodule UrbanFleet.TripSupervisor do
     DynamicSupervisor.count_children(__MODULE__)
   end
 
+  defp client_has_active_trip?(client_username) do
+    list_all_trips()
+    |> Enum.any?(fn trip ->
+      trip.client == client_username and trip.status in [:available, :in_progress]
+    end)
+  end
 
   defp generate_trip_id do
-    "trip_#{:os.system_time(:millisecond)}_#{:rand.uniform(9999)}"
+    # ID corto tipo "T12345" (más legible que timestamps largos)
+    n = :erlang.unique_integer([:positive])
+    short = rem(n, 100_000)
+    "T#{short}"
   end
 end

@@ -11,9 +11,9 @@ defmodule UrbanFleet.Client do
     """)
 
     # Intentar conectar al servidor
-    if Node.connect(:server@schwarz) do
+    if Node.connect(:"server@localhost") do
       IO.puts("✅ Connected to UrbanFleet Server.")
-      case :rpc.call(:server@schwarz, Process, :whereis, [:server]) do
+      case :rpc.call(:"server@localhost", Process, :whereis, [:server]) do
         pid when is_pid(pid) ->
           IO.puts("🖥️  Remote server process found.")
           command_loop(pid, nil)
@@ -22,7 +22,7 @@ defmodule UrbanFleet.Client do
           IO.puts("⚠️ Server process not found. Make sure it's running.")
       end
     else
-      IO.puts("❌ Could not connect to remote node (:server@schwarz)")
+      IO.puts("❌ Could not connect to remote node (:\"server@localhost\")")
     end
   end
 
@@ -30,11 +30,18 @@ defmodule UrbanFleet.Client do
   # CLI LOOP
   # ============================================================
 
+  # Public function for server RPC to push notifications to this client
+  def notify(message) do
+    IO.puts("\n" <> message)
+    :ok
+  end
+
   defp command_loop(pid, user \\ nil) do
     prompt =
       case user do
-        %{role: :client} -> IO.ANSI.green() <> "[Cliente] > " <> IO.ANSI.reset()
-        %{role: :driver} -> IO.ANSI.yellow() <> "[Conductor] > " <> IO.ANSI.reset()
+        %{role: :client, username: u} -> IO.ANSI.green() <> "[Cliente: #{u}] > " <> IO.ANSI.reset()
+        %{role: :driver, username: u} -> IO.ANSI.yellow() <> "[Driver: #{u}] > " <> IO.ANSI.reset()
+        %{role: r} -> IO.ANSI.cyan() <> "[#{Atom.to_string(r)}] > " <> IO.ANSI.reset()
         _ -> IO.ANSI.cyan() <> "[Invitado] > " <> IO.ANSI.reset()
       end
 
@@ -60,23 +67,29 @@ defmodule UrbanFleet.Client do
             command_loop(pid, user)
 
           _ ->
-            # Enviar comando al servidor
-            case :rpc.call(:server@schwarz, GenServer, :call, [:server, {:remote_command, cmd}]) do
-              {:ok, response} ->
-                # Mostrar el mensaje recibido
+            # Enviar comando al servidor (ahora enviamos el estado local 'user' y esperamos {msg, new_state})
+            case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
+              {:ok, {response, new_state}} ->
                 IO.puts(response)
 
-                # Si es login exitoso, actualizar el estado del cliente
-                if String.contains?(response, "Registrado") or
-                     String.contains?(response, "Bienvenido de nuevo") do
-                  [_, username, _, role] = String.split(cmd)
-                  new_user = %{username: username, role: String.to_atom(role)}
-                  command_loop(pid, new_user)
-                else
-                  command_loop(pid, user)
+                cond do
+                  is_map(new_state) ->
+                    # successful login/updated state -> register this client node for callbacks
+                    :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
+                    command_loop(pid, new_state)
+
+                  new_state == :logout ->
+                    # server indicated logout -> unregister and clear local state
+                    if user && Map.get(user, :username) do
+                      :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
+                    end
+                    command_loop(pid, nil)
+
+                  true ->
+                    command_loop(pid, user)
                 end
 
-              {:error, response} ->
+              {:error, {response, _client_state}} ->
                 IO.puts(response)
                 command_loop(pid, user)
 
@@ -101,12 +114,12 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║          📱 CLIENT COMMANDS             ║
     ╚════════════════════════════════════════╝
-    request_trip origen=<loc> destino=<loc> - Request a trip
-    my_score                                 - View your score
-    ranking                                  - View global ranking
-    disconnect                               - Disconnect
-    help                                     - Show this help
-    exit                                     - Exit session
+    request <dest>                (or: request_trip origen=<loc> destino=<loc>) - Pedir viaje (destino sencillo)
+    my_score      (or: score)                                            - Ver tu puntuación
+    ranking       (or: rank)                                             - Ver ranking global
+    disconnect                                                             - Desconectarse
+    help                                                                   - Mostrar esta ayuda
+    exit                                                                   - Cerrar sesión
     """)
   end
 
@@ -115,13 +128,14 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║          🚕 DRIVER COMMANDS             ║
     ╚════════════════════════════════════════╝
-    list_trips       - View available trips
-    accept_trip <id> - Accept a trip
-    my_score         - View your score
-    ranking driver   - View driver ranking
-    disconnect       - Disconnect
-    help             - Show this help
-    exit             - Exit session
+    list_trips   (or: trips)        - View available trips
+    accept_trip <id> (or: accept)   - Accept a trip
+    cancel <id>   (or: cancel_trip)  - Cancel an accepted trip (penalización)
+    my_score      (or: score)       - View your score
+    ranking driver (or: rank driver)- View driver ranking
+    disconnect                      - Disconnect
+    help                            - Show this help
+    exit                            - Exit session
     """)
   end
 
