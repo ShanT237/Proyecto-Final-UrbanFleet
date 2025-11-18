@@ -67,9 +67,8 @@ defmodule UrbanFleet.Trip do
       end_time: end_time
     })
 
-    # Programar comprobación de expiración y primer tick
+    # Solo programar comprobación de expiración (sin ticks)
     Process.send_after(self(), :check_expiration, @trip_duration)
-    Process.send_after(self(), :tick, @tick_interval)
 
     Logger.info("Trip #{state.id} creado: #{state.origin} -> #{state.destination}")
 
@@ -134,24 +133,11 @@ defmodule UrbanFleet.Trip do
     {:reply, {:error, :cannot_cancel}, state}
   end
 
-  # Ticks: enviar actualizaciones de tiempo restante al servidor (cada segundo)
+  # Ticks: ya no envían actualizaciones, solo esperamos la finalización
   @impl true
   def handle_info(:tick, state) do
-    remaining_ms = DateTime.diff(state.end_time, DateTime.utc_now(), :millisecond)
-    remaining_ms = if remaining_ms < 0, do: 0, else: remaining_ms
-
-    # Send tick notification to server (which will forward to clients)
-    if Process.whereis(:server) do
-      send(:server, {:trip_tick, state.id, remaining_ms})
-    end
-
-    # continuar ticks mientras no haya finalizado
-    if remaining_ms > 0 do
-      Process.send_after(self(), :tick, @tick_interval)
-      {:noreply, state}
-    else
-      {:noreply, state}
-    end
+    # Ya no enviamos ticks al servidor, solo esperamos la finalización del viaje
+    {:noreply, state}
   end
 
   @impl true

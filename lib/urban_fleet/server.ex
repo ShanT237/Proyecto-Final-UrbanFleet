@@ -90,8 +90,13 @@ end
   def handle_info({:trip_completed, trip_state}, state) do
     msg = "✅ Viaje completado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "\n✅ Tu viaje #{trip_state.id} fue completado exitosamente. Conductor: #{trip_state.driver}\n+10 puntos ganados! 🎉", state)
-    notify_user_by_name(trip_state.driver, "\n✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}\n+15 puntos ganados! 💰", state)
+
+    Logger.info("Sending completion notification to client: #{trip_state.client}")
+    notify_user_by_name(trip_state.client, "\n✅ Tu viaje #{trip_state.id} fue completado exitosamente. Conductor: #{trip_state.driver}\n+10 puntos ganados! 🎉\n", state)
+
+    Logger.info("Sending completion notification to driver: #{trip_state.driver}")
+    notify_user_by_name(trip_state.driver, "\n✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}\n+15 puntos ganados! 💰\n", state)
+
     {:noreply, state}
   end
 
@@ -99,7 +104,10 @@ end
   def handle_info({:trip_expired, trip_state}, state) do
     msg = "⚠️ Viaje expirado: #{trip_state.id} | Cliente: #{trip_state.client} | Origen: #{trip_state.origin} → Destino: #{trip_state.destination}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "\n⚠️ Tu viaje #{trip_state.id} expiró sin conductor.\nRuta: #{trip_state.origin} → #{trip_state.destination}\nPuedes solicitar uno nuevo.", state)
+
+    Logger.info("Sending expiration notification to client: #{trip_state.client}")
+    notify_user_by_name(trip_state.client, "\n⚠️ Tu viaje #{trip_state.id} expiró sin conductor.\nRuta: #{trip_state.origin} → #{trip_state.destination}\nPuedes solicitar uno nuevo.\n", state)
+
     {:noreply, state}
   end
 
@@ -107,33 +115,21 @@ end
   def handle_info({:trip_cancelled, trip_state}, state) do
     msg = "🛑 Viaje cancelado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "\n🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.\nPuedes solicitar un nuevo viaje.", state)
-    notify_user_by_name(trip_state.driver, "\n🛑 Cancelaste el viaje #{trip_state.id}.\n⚠️  Penalización aplicada: -10 puntos", state)
+
+    Logger.info("Sending cancellation notification to client: #{trip_state.client}")
+    notify_user_by_name(trip_state.client, "\n🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.\nPuedes solicitar un nuevo viaje.\n", state)
+
+    Logger.info("Sending cancellation notification to driver: #{trip_state.driver}")
+    notify_user_by_name(trip_state.driver, "\n🛑 Cancelaste el viaje #{trip_state.id}.\n⚠️  Penalización aplicada: -10 puntos\n", state)
+
     {:noreply, state}
   end
 
   # Tick updates from trips: remaining ms (notify both client and driver if connected)
   @impl true
   def handle_info({:trip_tick, trip_id, remaining_ms}, state) do
-    seconds = div(remaining_ms, 1000)
-
-    # Try to get trip state to determine client/driver; ignore errors if trip not found
-    trip_info =
-      try do
-        UrbanFleet.Trip.get_state(trip_id)
-      rescue
-        _ -> nil
-      end
-
-    # Notify only clients and drivers, not the server
-    if trip_info do
-      notify_user_by_name(trip_info.client, "⏳ Tu viaje #{trip_id} restante: #{seconds}s", state)
-
-      if trip_info.driver do
-        notify_user_by_name(trip_info.driver, "⏳ Viaje #{trip_id} restante: #{seconds}s (cliente: #{trip_info.client})", state)
-      end
-    end
-
+    # No mostramos nada, ni en servidor ni en clientes
+    # Solo mantenemos el handler para no causar errores
     {:noreply, state}
   end
 
@@ -591,11 +587,14 @@ end
 defp notify_user_by_name(username, message, state) when is_binary(username) do
   case Map.get(state.sessions, username) do
     nil ->
+      Logger.debug("No session found for user: #{username}")
       :no_session
 
     node when is_atom(node) ->
       # Ejecutar la función notify/1 en el módulo UrbanFleet.Client del nodo remoto
-      :rpc.cast(node, UrbanFleet.Client, :notify, [message])
+      Logger.debug("Sending notification to #{username} at node #{inspect(node)}")
+      result = :rpc.call(node, UrbanFleet.Client, :notify, [message])
+      Logger.debug("Notification result: #{inspect(result)}")
       :ok
 
     pid when is_pid(pid) ->
@@ -603,7 +602,8 @@ defp notify_user_by_name(username, message, state) when is_binary(username) do
       send(pid, {:notify, message})
       :ok
 
-    _ ->
+    other ->
+      Logger.warn("Unknown session type for #{username}: #{inspect(other)}")
       :no_session
   end
 end

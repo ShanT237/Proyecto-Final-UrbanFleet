@@ -15,10 +15,11 @@ defmodule UrbanFleet.Client do
       IO.puts("✅ Conectado al Servidor UrbanFleet.")
       case :rpc.call(:"server@localhost", Process, :whereis, [:server]) do
         pid when is_pid(pid) ->
-          IO.puts("🖥️  Proceso remoto del servidor encontrado.")
+          IO.puts("🖥️  Proceso remoto del servidor encontrado.\n")
 
-          # Registrar este proceso para recibir notificaciones
-          Process.register(self(), :client_notifier)
+          # Iniciar proceso listener en background
+          listener_pid = spawn(fn -> notification_listener() end)
+          Process.register(listener_pid, :notification_listener)
 
           command_loop(pid, nil)
 
@@ -31,17 +32,36 @@ defmodule UrbanFleet.Client do
   end
 
   # ============================================================
-  # CLI LOOP
+  # NOTIFICATION LISTENER (corre en background)
   # ============================================================
 
-  # Public function for server RPC to push notifications to this client
+  defp notification_listener do
+    receive do
+      {:notification, message} ->
+        IO.write("\r" <> String.duplicate(" ", 80) <> "\r")  # Limpiar línea
+        IO.puts(message)
+        notification_listener()
+
+      :stop ->
+        :ok
+    end
+  end
+
+  # ============================================================
+  # PUBLIC API para que el servidor envíe notificaciones
+  # ============================================================
+
   def notify(message) do
-    # Enviar mensaje al proceso registrado localmente
-    if Process.whereis(:client_notifier) do
-      send(:client_notifier, {:display_notification, message})
+    case Process.whereis(:notification_listener) do
+      nil -> :ok
+      pid -> send(pid, {:notification, message})
     end
     :ok
   end
+
+  # ============================================================
+  # CLI LOOP
+  # ============================================================
 
   defp command_loop(pid, user \\ nil) do
     prompt =
@@ -52,70 +72,65 @@ defmodule UrbanFleet.Client do
         _ -> IO.ANSI.cyan() <> "[Invitado] > " <> IO.ANSI.reset()
       end
 
-    # Check for pending notifications before showing prompt
-    receive do
-      {:display_notification, message} ->
-        IO.write(message)
-        command_loop(pid, user)
-    after
-      0 ->
-        # No notifications, continue with normal input
-        input = IO.gets(prompt)
+    input = IO.gets(prompt)
 
-        case input do
-          nil ->
-            IO.puts("\n👋 Cerrando cliente...")
+    case input do
+      nil ->
+        IO.puts("\n👋 Cerrando cliente...")
+        :ok
+
+      raw ->
+        cmd = String.trim(raw)
+
+        case cmd do
+          "" ->
+            command_loop(pid, user)
+
+          "exit" ->
+            IO.puts("👋 Desconectando cliente...")
+            if Process.whereis(:notification_listener) do
+              send(:notification_listener, :stop)
+            end
             :ok
 
-          raw ->
-            cmd = String.trim(raw)
+          "help" ->
+            show_help(user)
+            command_loop(pid, user)
 
-            case cmd do
-              "" ->
-                command_loop(pid, user)
+          _ ->
+            # Enviar comando al servidor
+            case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
+              {:ok, {response, new_state}} ->
+                IO.puts(response)
 
-              "exit" ->
-                IO.puts("👋 Desconectando cliente...")
+                cond do
+                  is_map(new_state) ->
+                    # successful login/updated state -> register this client node for callbacks
+                    :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
+                    command_loop(pid, new_state)
 
-              "help" ->
-                show_help(user)
-                command_loop(pid, user)
-
-              _ ->
-                # Enviar comando al servidor (ahora enviamos el estado local 'user' y esperamos {msg, new_state})
-                case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
-                  {:ok, {response, new_state}} ->
-                    IO.puts(response)
-
-                    cond do
-                      is_map(new_state) ->
-                        # successful login/updated state -> register this client node for callbacks
-                        :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
-                        command_loop(pid, new_state)
-
-                      new_state == :logout ->
-                        # server indicated logout -> unregister and clear local state
-                        if user && Map.get(user, :username) do
-                          :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
-                        end
-                        command_loop(pid, nil)
-
-                      true ->
-                        command_loop(pid, user)
+                  new_state == :logout ->
+                    # server indicated logout -> unregister and clear local state
+                    if user && Map.get(user, :username) do
+                      :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
                     end
+                    command_loop(pid, nil)
 
-                  {:error, {response, _client_state}} ->
-                    IO.puts(response)
-                    command_loop(pid, user)
-
-                  {:badrpc, reason} ->
-                    IO.puts("⚠️ Error RPC: #{inspect(reason)}")
-                    command_loop(pid, user)
-
-                  other ->
-                    IO.inspect(other, label: "Respuesta desconocida del servidor")
+                  true ->
                     command_loop(pid, user)
                 end
+
+              {:error, {response, _client_state}} ->
+                IO.puts(response)
+                command_loop(pid, user)
+
+              {:badrpc, reason} ->
+                IO.puts("⚠️ Error RPC: #{inspect(reason)}")
+                command_loop(pid, user)
+
+              other ->
+                IO.inspect(other, label: "Respuesta desconocida del servidor")
+                command_loop(pid, user)
             end
         end
     end
@@ -130,12 +145,12 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║          📱 COMANDOS DEL CLIENTE        ║
     ╚════════════════════════════════════════╝
-    request <origin> <dest>        (or: request_trip origen=<loc> destino=<loc>) - Pedir viaje
-    my_score      (or: score)                                            - Ver tu puntuación
-    ranking       (or: rank)                                             - Ver ranking global
-    disconnect                                                             - Desconectarse
-    help                                                                   - Mostrar esta ayuda
-    exit                                                                   - Cerrar sesión
+    request <origin> <dest>        - Solicitar viaje
+    my_score      (or: score)      - Ver tu puntuación
+    ranking       (or: rank)       - Ver ranking global
+    disconnect                     - Desconectarse
+    help                           - Mostrar esta ayuda
+    exit                           - Cerrar sesión
     """)
   end
 
@@ -144,14 +159,14 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║          🚕 COMANDOS DEL DRIVER         ║
     ╚════════════════════════════════════════╝
-    list_trips   (or: trips)        - View available trips
-    accept_trip <id> (or: accept)   - Accept a trip
-    cancel <id>   (or: cancel_trip)  - Cancel an accepted trip (penalización)
-    my_score      (or: score)       - View your score
-    ranking driver (or: rank driver)- View driver ranking
-    disconnect                      - Disconnect
-    help                            - Show this help
-    exit                            - Exit session
+    list_trips   (or: trips)        - Ver viajes disponibles
+    accept_trip <id> (or: accept)   - Aceptar viaje
+    cancel <id>   (or: cancel_trip) - Cancelar viaje aceptado
+    my_score      (or: score)       - Ver tu puntuación
+    ranking driver (or: rank driver)- Ver ranking conductores
+    disconnect                      - Desconectarse
+    help                            - Mostrar esta ayuda
+    exit                            - Cerrar sesión
     """)
   end
 
@@ -160,9 +175,9 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║         👋 BIENVENIDO A URBANFLEET      ║
     ╚════════════════════════════════════════╝
-    connect <user> <pass> <client|driver> - Log in or register
-    help                                  - Show this menu
-    exit                                  - Close session
+    connect <user> <pass> <client|driver> - Log in o registrar
+    help                                  - Mostrar este menú
+    exit                                  - Cerrar sesión
     """)
   end
 end

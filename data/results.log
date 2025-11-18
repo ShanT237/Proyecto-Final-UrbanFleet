@@ -49,3 +49,5 @@
 2025-11-06 21:32:57; cliente=ss; conductor=ll; origen=Centro; destino=Parque; status=Completado
 2025-11-18 04:38:16; cliente=ll; conductor=ninguno; origen=Parque; destino=Centro; status=Expirado
 2025-11-18 04:44:41; cliente=ll; conductor=ninguno; origen=Parque; destino=Centro; status=Expirado
+2025-11-18 04:50:05; cliente=ss; conductor=ninguno; origen=Parque; destino=Centro; status=Expirado
+2025-11-18 04:54:20; cliente=ss; conductor=ninguno; origen=Parque; destino=Centro; status=Expirado
