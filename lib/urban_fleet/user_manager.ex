@@ -58,13 +58,16 @@ defmodule UrbanFleet.UserManager do
           role: role,
           score: 0
         }
+
         new_users = Map.put(users, username, new_user)
         save_users(new_users)
+
         Logger.info("Nuevo usuario registrado: #{username} (#{role})")
+
         {:reply, {:ok, :registered, new_user}, new_users}
 
       user ->
-        # Iniciar sesión de usuario existente
+        # Iniciar sesión de un usuario existente
         if verify_password(password, user.password) do
           Logger.info("Usuario inició sesión: #{username}")
           {:reply, {:ok, :logged_in, user}, users}
@@ -82,33 +85,37 @@ defmodule UrbanFleet.UserManager do
 
   @impl true
   def handle_call({:get_score, username}, _from, users) do
-    score = case Map.get(users, username) do
-      nil -> {:error, :user_not_found}
-      user -> {:ok, user.score}
-    end
+    score =
+      case Map.get(users, username) do
+        nil -> {:error, :user_not_found}
+        user -> {:ok, user.score}
+      end
+
     {:reply, score, users}
   end
 
   @impl true
   def handle_call({:get_ranking, role}, _from, users) do
-    ranking = users
-    |> Map.values()
-    |> Enum.filter(fn user ->
-      is_nil(role) || user.role == role
-    end)
-    |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.take(10)
+    ranking =
+      users
+      |> Map.values()
+      |> Enum.filter(fn user ->
+        is_nil(role) || user.role == role
+      end)
+      |> Enum.sort_by(& &1.score, :desc)
+      |> Enum.take(10)
 
     {:reply, ranking, users}
   end
 
   @impl true
   def handle_cast({:trip_completed, client_username, driver_username, trip_id}, users) do
-    Logger.info("Trip #{trip_id} completed - awarding points")
+    Logger.info("Viaje #{trip_id} completado - asignando puntos")
 
-    new_users = users
-    |> update_score(client_username, 10)
-    |> update_score(driver_username, 15)
+    new_users =
+      users
+      |> update_score(client_username, 10)
+      |> update_score(driver_username, 15)
 
     save_users(new_users)
     {:noreply, new_users}
@@ -116,16 +123,18 @@ defmodule UrbanFleet.UserManager do
 
   @impl true
   def handle_cast({:trip_expired, client_username, trip_id}, users) do
-    # Previously penalized client on expiration; now we do not penalize per latest requirements
-    Logger.warn("Trip #{trip_id} expired - no penalty for client (policy changed)")
+    # Antes se penalizaba al cliente por expiración; ahora ya no según los requisitos actuales
+    Logger.warn("El viaje #{trip_id} expiró – sin penalización para el cliente (política actualizada)")
     {:noreply, users}
   end
 
   @impl true
   def handle_cast({:driver_cancelled, driver_username, trip_id}, users) do
-    Logger.warn("Trip #{trip_id} cancelled by driver #{driver_username} - penalizing driver")
+    Logger.warn("Viaje #{trip_id} cancelado por el conductor #{driver_username} – penalizando conductor")
+
     new_users = update_score(users, driver_username, -10)
     save_users(new_users)
+
     {:noreply, new_users}
   end
 
@@ -134,7 +143,7 @@ defmodule UrbanFleet.UserManager do
   defp update_score(users, username, points) do
     case Map.get(users, username) do
       nil ->
-        Logger.warn("Attempted to update score for unknown user #{username}. Ignoring.")
+        Logger.warn("Intento de actualizar puntaje de usuario desconocido #{username}. Ignorado.")
         users
 
       user ->
@@ -143,7 +152,7 @@ defmodule UrbanFleet.UserManager do
   end
 
   defp hash_password(password) do
-    # Hash simple - en producción usar Argon2 u otro algoritmo seguro
+    # Hash simple – en producción usar Argon2 u otro algoritmo seguro
     :crypto.hash(:sha256, password) |> Base.encode64()
   end
 
@@ -161,11 +170,11 @@ defmodule UrbanFleet.UserManager do
         |> Map.new(fn user -> {user.username, user} end)
 
       {:error, :enoent} ->
-        Logger.info("No existing users file, starting fresh")
+        Logger.info("No existe archivo de usuarios; iniciando desde cero")
         %{}
 
       {:error, reason} ->
-        Logger.error("Failed to load users: #{inspect(reason)}")
+        Logger.error("No se pudieron cargar los usuarios: #{inspect(reason)}")
         %{}
     end
   end
@@ -179,17 +188,20 @@ defmodule UrbanFleet.UserManager do
           password: password,
           score: String.to_integer(score)
         }
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
   defp save_users(users) do
-    content = users
-    |> Map.values()
-    |> Enum.map(fn user ->
-      "#{user.username}|#{user.role}|#{user.password}|#{user.score}"
-    end)
-    |> Enum.join("\n")
+    content =
+      users
+      |> Map.values()
+      |> Enum.map(fn user ->
+        "#{user.username}|#{user.role}|#{user.password}|#{user.score}"
+      end)
+      |> Enum.join("\n")
 
     File.mkdir_p!("data")
     File.write!(@users_file, content <> "\n")

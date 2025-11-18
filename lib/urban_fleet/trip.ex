@@ -5,7 +5,7 @@ defmodule UrbanFleet.Trip do
   @trip_duration 60_000 # 60 segundos en milisegundos
   @tick_interval 1_000  # ticks de 1 segundo para la cuenta regresiva
 
-  # Asegurar hijos dinámicos como temporales (no reiniciar tras salida normal)
+  # Asegurar que los hijos dinámicos sean temporales (no reiniciar después de una salida normal)
   def child_spec(arg) do
     %{
       id: __MODULE__,
@@ -15,7 +15,7 @@ defmodule UrbanFleet.Trip do
     }
   end
 
-  # Client API
+  # API del Cliente
 
   def start_link(trip_data) do
     GenServer.start_link(__MODULE__, trip_data, name: via_tuple(trip_data.id))
@@ -55,7 +55,7 @@ defmodule UrbanFleet.Trip do
     end)
   end
 
-  # Server Callbacks
+  # Callbacks del Servidor
 
   @impl true
   def init(trip_data) do
@@ -71,10 +71,10 @@ defmodule UrbanFleet.Trip do
       end_time: end_time
     })
 
-    # Solo programar comprobación de expiración (sin ticks)
+    # Programar solo la comprobación de expiración (sin ticks)
     Process.send_after(self(), :check_expiration, @trip_duration)
 
-    Logger.info("Trip #{state.id} creado: #{state.origin} -> #{state.destination}")
+    Logger.info("Viaje #{state.id} creado: #{state.origin} -> #{state.destination}")
 
     {:ok, state}
   end
@@ -96,10 +96,10 @@ defmodule UrbanFleet.Trip do
       end_time: end_time
     }
 
-    # Schedule completion after trip duration (from accept)
+    # Programar finalización después de la duración del viaje (desde la aceptación)
     Process.send_after(self(), :complete_trip, @trip_duration)
 
-    Logger.info("Trip #{state.id} accepted by driver #{driver_username}")
+    Logger.info("Viaje #{state.id} aceptado por el conductor #{driver_username}")
 
     {:reply, {:ok, new_state}, new_state}
   end
@@ -109,7 +109,7 @@ defmodule UrbanFleet.Trip do
     {:reply, {:error, :trip_not_available}, state}
   end
 
-  # Cancelling by driver (trip in progress)
+  # Cancelación por conductor (viaje en progreso)
   @impl true
   def handle_call({:cancel_trip_by_driver, driver_username}, _from, %{status: :in_progress, driver: driver_username} = state) do
     new_state = %{state |
@@ -117,20 +117,20 @@ defmodule UrbanFleet.Trip do
       completed_at: DateTime.utc_now()
     }
 
-    # Penalize driver (use UserManager helper)
+    # Penalizar al conductor (usar helper de UserManager)
     UrbanFleet.UserManager.trip_cancelled(driver_username, state.id)
 
-    # Log and notify
+    # Registrar y notificar
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    # Send notification to server
+    # Enviar notificación al servidor
     if Process.whereis(:server) do
       send(:server, {:trip_cancelled, new_state})
     end
 
-    Logger.info("Trip #{state.id} cancelled by driver #{driver_username}")
+    Logger.info("Viaje #{state.id} cancelado por el conductor #{driver_username}")
 
-    # Stop the GenServer after cancellation
+    # Detener el GenServer después de cancelar
     {:stop, :normal, {:ok, new_state}, new_state}
   end
 
@@ -139,7 +139,7 @@ defmodule UrbanFleet.Trip do
     {:reply, {:error, :cannot_cancel}, state}
   end
 
-  # Cancelling by client (trip available, no driver assigned yet)
+  # Cancelación por cliente (viaje disponible, sin conductor asignado)
   @impl true
   def handle_call({:cancel_trip_by_client, client_username}, _from, %{status: :available, client: client_username} = state) do
     new_state = %{state |
@@ -147,12 +147,12 @@ defmodule UrbanFleet.Trip do
       completed_at: DateTime.utc_now()
     }
 
-    # Log the cancellation
+    # Registrar la cancelación
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    Logger.info("Trip #{state.id} cancelled by client #{client_username}")
+    Logger.info("Viaje #{state.id} cancelado por el cliente #{client_username}")
 
-    # Stop the GenServer after cancellation
+    # Detener el GenServer después de cancelar
     {:stop, :normal, {:ok, new_state}, new_state}
   end
 
@@ -169,63 +169,63 @@ defmodule UrbanFleet.Trip do
 
   @impl true
   def handle_info(:check_expiration, %{status: :available} = state) do
-    # Trip expired without driver
-    Logger.warn("Trip #{state.id} expired without driver")
+    # El viaje expiró sin conductor
+    Logger.warn("El viaje #{state.id} expiró sin conductor")
 
     new_state = %{state |
       status: :expired,
       completed_at: DateTime.utc_now()
     }
 
-    # Log result
+    # Registrar resultado
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    # Notify server (so admin/CLI and clients see it)
+    # Notificar al servidor (para que admin/CLI y clientes lo vean)
     if Process.whereis(:server) do
       send(:server, {:trip_expired, new_state})
     end
 
-    # Stop the GenServer after logging
+    # Detener el GenServer después de registrarlo
     {:stop, :normal, new_state}
   end
 
   @impl true
   def handle_info(:check_expiration, state) do
-    # Trip was accepted or already handled
+    # El viaje ya fue aceptado o ya fue manejado
     {:noreply, state}
   end
 
   @impl true
   def handle_info(:complete_trip, %{status: :in_progress} = state) do
-    Logger.info("Trip #{state.id} completed successfully")
+    Logger.info("Viaje #{state.id} completado exitosamente")
 
     new_state = %{state |
       status: :completed,
       completed_at: DateTime.utc_now()
     }
 
-    # Award points to both client and driver
+    # Dar puntos a cliente y conductor
     UrbanFleet.UserManager.trip_completed(state.client, state.driver, state.id)
 
-    # Log result
+    # Registrar resultado
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    # Notify server (so admin/CLI and clients see it)
+    # Notificar al servidor
     if Process.whereis(:server) do
       send(:server, {:trip_completed, new_state})
     end
 
-    # Stop the GenServer after completion
+    # Detener GenServer después de la finalización
     {:stop, :normal, new_state}
   end
 
   @impl true
   def handle_info(:complete_trip, state) do
-    # Trip was cancelled or already completed
+    # El viaje fue cancelado o ya estaba completado
     {:noreply, state}
   end
 
-  # Helper Functions
+  # Funciones Helper
 
   defp via_tuple(trip_id) do
     {:via, Registry, {UrbanFleet.TripRegistry, trip_id}}

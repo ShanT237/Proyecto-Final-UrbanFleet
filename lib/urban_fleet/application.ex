@@ -10,13 +10,13 @@ defmodule UrbanFleet.Application do
       # Registro de viajes
       {Registry, keys: :unique, name: UrbanFleet.TripRegistry},
 
-      # User manager (autenticación y score)
+      # Gestor de usuarios (autenticación y puntuación)
       UrbanFleet.UserManager,
 
-      # Supervisor
+      # Supervisor de viajes
       UrbanFleet.TripSupervisor,
 
-      # Main server (CLI handler)
+      # Servidor principal (manejador de la CLI)
       UrbanFleet.Server
     ]
 
@@ -24,7 +24,7 @@ defmodule UrbanFleet.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, pid} ->
-        Logger.info("UrbanFleet Application started successfully")
+        Logger.info("La aplicación UrbanFleet se inició correctamente")
 
         Process.sleep(100)
         UrbanFleet.Server.start_cli()
@@ -32,7 +32,7 @@ defmodule UrbanFleet.Application do
         {:ok, pid}
 
       error ->
-        Logger.error("Failed to start UrbanFleet Application: #{inspect(error)}")
+        Logger.error("No se pudo iniciar la aplicación UrbanFleet: #{inspect(error)}")
         error
     end
   end

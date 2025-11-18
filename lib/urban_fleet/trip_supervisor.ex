@@ -11,14 +11,14 @@ defmodule UrbanFleet.TripSupervisor do
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 
-  # Client API
+  # API del cliente
 
   @doc """
-  Crea un nuevo proceso de viaje bajo supervición.
-  Returns {:ok, trip_id} or {:error, reason}
+  Crea un nuevo proceso de viaje bajo supervisión.
+  Retorna {:ok, trip_id} o {:error, reason}
   """
   def create_trip(client_username, origin, destination) do
-    # Check if client already has an active trip
+    # Verificar si el cliente ya tiene un viaje activo
     if client_has_active_trip?(client_username) do
       {:error, :already_has_active_trip}
     else
@@ -33,18 +33,18 @@ defmodule UrbanFleet.TripSupervisor do
 
       case DynamicSupervisor.start_child(__MODULE__, {UrbanFleet.Trip, trip_data}) do
         {:ok, _pid} ->
-          Logger.info("Trip #{trip_id} created successfully")
+          Logger.info("Viaje #{trip_id} creado exitosamente")
           {:ok, trip_id}
 
         {:error, reason} ->
-          Logger.error("Failed to create trip: #{inspect(reason)}")
+          Logger.error("No se pudo crear el viaje: #{inspect(reason)}")
           {:error, reason}
       end
     end
   end
 
   @doc """
-  Lista todos los viajes activos
+  Lista todos los viajes activos.
   """
   def list_all_trips do
     DynamicSupervisor.which_children(__MODULE__)
@@ -63,7 +63,7 @@ defmodule UrbanFleet.TripSupervisor do
   end
 
   @doc """
-  Cuenta los viajes activos
+  Cuenta los viajes activos.
   """
   def count_trips do
     DynamicSupervisor.count_children(__MODULE__)
