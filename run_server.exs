@@ -1,6 +1,6 @@
 #!/usr/bin/env elixir
 
-IO.puts("🚖 Starting UrbanFleet SERVER...\n")
+IO.puts("🚖 Iniciando SERVIDOR UrbanFleet...\n")
 
 # =======================================
 # CARGA DE MÓDULOS (EN ORDEN CORRECTO)
@@ -45,8 +45,8 @@ end
 # BANNER DEL SERVIDOR
 # =======================================
 
-IO.puts("System Status: ✓ Running\n")
-IO.puts("Waiting for clients/drivers to connect...\n")
+IO.puts("Estado del sistema: ✓ En ejecución\n")
+IO.puts("Esperando que clientes/conductores se conecten...\n")
 
 # =======================================
 # LANZAR CLI DIRECTAMENTE

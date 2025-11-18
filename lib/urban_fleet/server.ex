@@ -28,7 +28,7 @@ defmodule UrbanFleet.Server do
 
   @impl true
   def init(_) do
-    Logger.info("UrbanFleet Server iniciado")
+    Logger.info("Servidor UrbanFleet iniciado")
     {:ok, %{current_user: nil, sessions: %{}}}
   end
 
@@ -62,18 +62,18 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # Register/unregister client nodes so server can push notifications
+  # Registrar/dar de baja nodos clientes para que el servidor pueda enviar notificaciones
   @impl true
   def handle_call({:register_client, %{username: username} = _user_map, client_node}, _from, state) do
     sessions = Map.put(state.sessions, username, client_node)
-    Logger.info("Registered client #{username} at #{inspect(client_node)}")
+    Logger.info("Cliente registrado: #{username} en #{inspect(client_node)}")
     {:reply, :ok, %{state | sessions: sessions}}
   end
 
   @impl true
   def handle_call({:unregister_client, username}, _from, state) do
     sessions = Map.delete(state.sessions, username)
-    Logger.info("Unregistered client #{username}")
+    Logger.info("Cliente dado de baja: #{username}")
     {:reply, :ok, %{state | sessions: sessions}}
   end
 
@@ -89,10 +89,10 @@ defmodule UrbanFleet.Server do
     msg = "✅ Viaje completado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
 
-    Logger.info("Sending completion notification to client: #{trip_state.client}")
+    Logger.info("Enviando notificación de finalización al cliente: #{trip_state.client}")
     notify_user_by_name(trip_state.client, "\n✅ Tu viaje #{trip_state.id} fue completado exitosamente. Conductor: #{trip_state.driver}\n+10 puntos ganados! 🎉\n", state)
 
-    Logger.info("Sending completion notification to driver: #{trip_state.driver}")
+    Logger.info("Enviando notificación de finalización al conductor: #{trip_state.driver}")
     notify_user_by_name(trip_state.driver, "\n✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}\n+15 puntos ganados! 💰\n", state)
 
     {:noreply, state}
@@ -103,7 +103,7 @@ defmodule UrbanFleet.Server do
     msg = "⚠️ Viaje expirado: #{trip_state.id} | Cliente: #{trip_state.client} | Origen: #{trip_state.origin} → Destino: #{trip_state.destination}"
     IO.puts("\n" <> msg)
 
-    Logger.info("Sending expiration notification to client: #{trip_state.client}")
+    Logger.info("Enviando notificación de expiración al cliente: #{trip_state.client}")
     notify_user_by_name(trip_state.client, "\n⚠️ Tu viaje #{trip_state.id} expiró sin conductor.\nRuta: #{trip_state.origin} → #{trip_state.destination}\nPuedes solicitar uno nuevo.\n", state)
 
     {:noreply, state}
@@ -114,36 +114,36 @@ defmodule UrbanFleet.Server do
     msg = "🛑 Viaje cancelado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
 
-    Logger.info("Sending cancellation notification to client: #{trip_state.client}")
+    Logger.info("Enviando notificación de cancelación al cliente: #{trip_state.client}")
     notify_user_by_name(trip_state.client, "\n🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.\nPuedes solicitar un nuevo viaje.\n", state)
 
-    Logger.info("Sending cancellation notification to driver: #{trip_state.driver}")
+    Logger.info("Enviando notificación de cancelación al conductor: #{trip_state.driver}")
     notify_user_by_name(trip_state.driver, "\n🛑 Cancelaste el viaje #{trip_state.id}.\n⚠️  Penalización aplicada: -10 puntos\n", state)
 
     {:noreply, state}
   end
 
-  # Tick updates from trips: remaining ms (notify both client and driver if connected)
+  # Actualizaciones de "tick" desde viajes: ms restantes (notificar a cliente y conductor si están conectados)
   @impl true
   def handle_info({:trip_tick, trip_id, remaining_ms}, state) do
     {:noreply, state}
   end
 
   # ==============================
-  # CLI LOOP
+  # BUCLE DEL CLI
   # ==============================
 
   defp cli_loop(current_user) do
     prompt =
       case current_user do
         %{role: :admin} ->
-          IO.ANSI.cyan() <> "[server-admin] > " <> IO.ANSI.reset()
+          IO.ANSI.cyan() <> "[servidor-admin] > " <> IO.ANSI.reset()
 
         %{username: u, role: r} ->
           IO.ANSI.green() <> "[#{u}@#{Atom.to_string(r)}] > " <> IO.ANSI.reset()
 
         _ ->
-          IO.ANSI.cyan() <> "[guest] > " <> IO.ANSI.reset()
+          IO.ANSI.cyan() <> "[invitado] > " <> IO.ANSI.reset()
       end
 
     IO.write(prompt)
@@ -226,7 +226,7 @@ defmodule UrbanFleet.Server do
   # PROCESAMIENTO DE COMANDOS REMOTOS (RPC desde clientes)
   # ==============================
 
-  # Aliases / comandos cortos
+  # Alias / comandos cortos
   defp process_remote_command("request " <> args, client), do: process_remote_command("request_trip " <> args, client)
   defp process_remote_command("accept " <> id, client), do: process_remote_command("accept_trip " <> id, client)
   defp process_remote_command("trips", client), do: process_remote_command("list_trips", client)
@@ -257,7 +257,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # list_zones -> for any logged user
+  # list_zones -> para cualquier usuario conectado
   defp process_remote_command("list_zones", user) do
     zones = UrbanFleet.Location.list_locations()
 
@@ -267,7 +267,7 @@ defmodule UrbanFleet.Server do
     {:ok, header <> body <> "\n", user}
   end
 
-  # cancel_trip -> for clients (cancel before driver accepts)
+  # cancel_trip -> para clientes (cancelar antes de que el conductor acepte)
   defp process_remote_command("cancel_trip " <> trip_id, %{role: :client, username: username} = user) do
     trip_id = String.trim(trip_id)
 
@@ -294,7 +294,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # cancel_trip -> for drivers (cancel after accepting)
+  # cancel_trip -> para conductores (cancelar después de aceptar)
   defp process_remote_command("cancel_trip " <> trip_id, %{role: :driver} = user) do
     trip_id = String.trim(trip_id)
 
@@ -321,7 +321,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # request_trip -> only for clients
+  # request_trip -> solo para clientes
   defp process_remote_command("request_trip " <> args, %{role: :client} = user) do
     case parse_trip_args(args) do
       {:ok, origin, destination} ->
@@ -353,7 +353,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # list_trips -> for drivers
+  # list_trips -> para conductores
   defp process_remote_command("list_trips", %{role: :driver} = user) do
     trips = UrbanFleet.Trip.list_available()
 
@@ -371,7 +371,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # accept_trip -> for drivers
+  # accept_trip -> para conductores
   defp process_remote_command("accept_trip " <> trip_id, %{role: :driver} = user) do
     case UrbanFleet.Trip.accept_trip(String.trim(trip_id), user.username) do
       {:ok, trip} ->
@@ -392,7 +392,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # my_score -> any logged user
+  # my_score -> cualquier usuario loggeado
   defp process_remote_command("my_score", %{username: uname} = user) do
     case UrbanFleet.UserManager.get_score(uname) do
       {:ok, score} ->
@@ -403,7 +403,7 @@ defmodule UrbanFleet.Server do
     end
   end
 
-  # ranking (global) and ranking <role>
+  # ranking (global) y ranking <role>
   defp process_remote_command("ranking", user) do
     ranking = UrbanFleet.UserManager.get_ranking(nil)
     msg = format_ranking(ranking, "🏆 RANKING GLOBAL")
@@ -418,16 +418,16 @@ defmodule UrbanFleet.Server do
     {:ok, msg, user}
   end
 
-  # disconnect -> logs out the client
+  # disconnect -> cierra la sesión del cliente
   defp process_remote_command("disconnect", %{username: name} = _user) do
     {:ok, "👋 Desconectado. Hasta luego #{name}!", :logout}
   end
 
-  # fallback for unknown or unauthorized remote commands
+  # fallback para comandos remotos desconocidos o no autorizados
   defp process_remote_command(_cmd, nil), do: {:error, "Comando desconocido o no autorizado. Usa 'connect' primero.", nil}
   defp process_remote_command(cmd, user), do: {:error, "Comando desconocido o no autorizado: #{cmd}", user}
 
-  # Helper to format ranking lists
+  # Ayudante para formatear listas de ranking
   defp format_ranking(list, title) do
     header = "\n#{title}\n" <> String.duplicate("═", 50) <> "\n"
     body =
@@ -446,7 +446,7 @@ defmodule UrbanFleet.Server do
   defp show_server_banner do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║        🖥️  URBANFLEET SERVER MODE       ║
+    ║        🖥️  MODO SERVIDOR URBANFLEET     ║
     ╚════════════════════════════════════════╝
 
     Bienvenido Administrador.
@@ -549,7 +549,7 @@ defmodule UrbanFleet.Server do
   # Bucle del CLI local del servidor
   # ==============================
   defp server_cli_loop do
-    prompt = IO.ANSI.light_blue_background() <> IO.ANSI.black() <> "[Server-Admin] > " <> IO.ANSI.reset()
+    prompt = IO.ANSI.light_blue_background() <> IO.ANSI.black() <> "[servidor-admin] > " <> IO.ANSI.reset()
     input = IO.gets(prompt)
 
     case input do
@@ -568,7 +568,7 @@ defmodule UrbanFleet.Server do
   defp process_server_command("help") do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║        🧠 MODO ADMINISTRADOR SERVER     ║
+    ║        🧠 MODO ADMINISTRADOR DEL SERVIDOR     ║
     ╚════════════════════════════════════════╝
     Comandos disponibles:
       add_zone <nombre>   - Agregar una nueva zona
@@ -632,13 +632,13 @@ defmodule UrbanFleet.Server do
   defp notify_user_by_name(username, message, state) when is_binary(username) do
     case Map.get(state.sessions, username) do
       nil ->
-        Logger.debug("No session found for user: #{username}")
+        Logger.debug("No se encontró sesión para el usuario: #{username}")
         :no_session
 
       node when is_atom(node) ->
-        Logger.debug("Sending notification to #{username} at node #{inspect(node)}")
+        Logger.debug("Enviando notificación a #{username} en el nodo #{inspect(node)}")
         result = :rpc.call(node, UrbanFleet.Client, :notify, [message])
-        Logger.debug("Notification result: #{inspect(result)}")
+        Logger.debug("Resultado de la notificación: #{inspect(result)}")
         :ok
 
       pid when is_pid(pid) ->
@@ -646,7 +646,7 @@ defmodule UrbanFleet.Server do
         :ok
 
       other ->
-        Logger.warn("Unknown session type for #{username}: #{inspect(other)}")
+        Logger.warn("Tipo de sesión desconocido para #{username}: #{inspect(other)}")
         :no_session
     end
   end
