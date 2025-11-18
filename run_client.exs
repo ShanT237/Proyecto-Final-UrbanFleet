@@ -16,6 +16,10 @@ defmodule UrbanFleet.Client do
       case :rpc.call(:"server@localhost", Process, :whereis, [:server]) do
         pid when is_pid(pid) ->
           IO.puts("🖥️  Proceso remoto del servidor encontrado.")
+
+          # Registrar este proceso para recibir notificaciones
+          Process.register(self(), :client_notifier)
+
           command_loop(pid, nil)
 
         _ ->
@@ -32,7 +36,10 @@ defmodule UrbanFleet.Client do
 
   # Public function for server RPC to push notifications to this client
   def notify(message) do
-    IO.puts("\n" <> message)
+    # Enviar mensaje al proceso registrado localmente
+    if Process.whereis(:client_notifier) do
+      send(:client_notifier, {:display_notification, message})
+    end
     :ok
   end
 
@@ -45,61 +52,70 @@ defmodule UrbanFleet.Client do
         _ -> IO.ANSI.cyan() <> "[Invitado] > " <> IO.ANSI.reset()
       end
 
-    input = IO.gets(prompt)
+    # Check for pending notifications before showing prompt
+    receive do
+      {:display_notification, message} ->
+        IO.write(message)
+        command_loop(pid, user)
+    after
+      0 ->
+        # No notifications, continue with normal input
+        input = IO.gets(prompt)
 
-    case input do
-      nil ->
-        IO.puts("\n👋 Cerrando cliente...")
-        :ok
+        case input do
+          nil ->
+            IO.puts("\n👋 Cerrando cliente...")
+            :ok
 
-      raw ->
-        cmd = String.trim(raw)
+          raw ->
+            cmd = String.trim(raw)
 
-        case cmd do
-          "" ->
-            command_loop(pid, user)
+            case cmd do
+              "" ->
+                command_loop(pid, user)
 
-          "exit" ->
-            IO.puts("👋 Desconectando cliente...")
+              "exit" ->
+                IO.puts("👋 Desconectando cliente...")
 
-          "help" ->
-            show_help(user)
-            command_loop(pid, user)
+              "help" ->
+                show_help(user)
+                command_loop(pid, user)
 
-          _ ->
-            # Enviar comando al servidor (ahora enviamos el estado local 'user' y esperamos {msg, new_state})
-            case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
-              {:ok, {response, new_state}} ->
-                IO.puts(response)
+              _ ->
+                # Enviar comando al servidor (ahora enviamos el estado local 'user' y esperamos {msg, new_state})
+                case :rpc.call(:"server@localhost", GenServer, :call, [:server, {:remote_command, cmd, user}]) do
+                  {:ok, {response, new_state}} ->
+                    IO.puts(response)
 
-                cond do
-                  is_map(new_state) ->
-                    # successful login/updated state -> register this client node for callbacks
-                    :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
-                    command_loop(pid, new_state)
+                    cond do
+                      is_map(new_state) ->
+                        # successful login/updated state -> register this client node for callbacks
+                        :rpc.call(:"server@localhost", GenServer, :call, [:server, {:register_client, new_state, Node.self()}])
+                        command_loop(pid, new_state)
 
-                  new_state == :logout ->
-                    # server indicated logout -> unregister and clear local state
-                    if user && Map.get(user, :username) do
-                      :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
+                      new_state == :logout ->
+                        # server indicated logout -> unregister and clear local state
+                        if user && Map.get(user, :username) do
+                          :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
+                        end
+                        command_loop(pid, nil)
+
+                      true ->
+                        command_loop(pid, user)
                     end
-                    command_loop(pid, nil)
 
-                  true ->
+                  {:error, {response, _client_state}} ->
+                    IO.puts(response)
+                    command_loop(pid, user)
+
+                  {:badrpc, reason} ->
+                    IO.puts("⚠️ Error RPC: #{inspect(reason)}")
+                    command_loop(pid, user)
+
+                  other ->
+                    IO.inspect(other, label: "Respuesta desconocida del servidor")
                     command_loop(pid, user)
                 end
-
-              {:error, {response, _client_state}} ->
-                IO.puts(response)
-                command_loop(pid, user)
-
-              {:badrpc, reason} ->
-                IO.puts("⚠️ Error RPC: #{inspect(reason)}")
-                command_loop(pid, user)
-
-              other ->
-                IO.inspect(other, label: "Respuesta desconocida del servidor")
-                command_loop(pid, user)
             end
         end
     end

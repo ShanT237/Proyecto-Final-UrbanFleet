@@ -90,8 +90,8 @@ end
   def handle_info({:trip_completed, trip_state}, state) do
     msg = "✅ Viaje completado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "✅ Tu viaje #{trip_state.id} fue completado. Conductor: #{trip_state.driver}", state)
-    notify_user_by_name(trip_state.driver, "✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}", state)
+    notify_user_by_name(trip_state.client, "\n✅ Tu viaje #{trip_state.id} fue completado exitosamente. Conductor: #{trip_state.driver}\n+10 puntos ganados! 🎉", state)
+    notify_user_by_name(trip_state.driver, "\n✅ Completaste el viaje #{trip_state.id}. Cliente: #{trip_state.client}\n+15 puntos ganados! 💰", state)
     {:noreply, state}
   end
 
@@ -99,7 +99,7 @@ end
   def handle_info({:trip_expired, trip_state}, state) do
     msg = "⚠️ Viaje expirado: #{trip_state.id} | Cliente: #{trip_state.client} | Origen: #{trip_state.origin} → Destino: #{trip_state.destination}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "⚠️ Tu viaje #{trip_state.id} expiró sin conductor.", state)
+    notify_user_by_name(trip_state.client, "\n⚠️ Tu viaje #{trip_state.id} expiró sin conductor.\nRuta: #{trip_state.origin} → #{trip_state.destination}\nPuedes solicitar uno nuevo.", state)
     {:noreply, state}
   end
 
@@ -107,8 +107,8 @@ end
   def handle_info({:trip_cancelled, trip_state}, state) do
     msg = "🛑 Viaje cancelado: #{trip_state.id} | Cliente: #{trip_state.client} | Conductor: #{trip_state.driver}"
     IO.puts("\n" <> msg)
-    notify_user_by_name(trip_state.client, "🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.", state)
-    notify_user_by_name(trip_state.driver, "🛑 Cancelaste el viaje #{trip_state.id}. Se aplicó penalización.", state)
+    notify_user_by_name(trip_state.client, "\n🛑 Tu viaje #{trip_state.id} fue cancelado por el conductor #{trip_state.driver}.\nPuedes solicitar un nuevo viaje.", state)
+    notify_user_by_name(trip_state.driver, "\n🛑 Cancelaste el viaje #{trip_state.id}.\n⚠️  Penalización aplicada: -10 puntos", state)
     {:noreply, state}
   end
 
@@ -125,9 +125,7 @@ end
         _ -> nil
       end
 
-    # Print compact progress on server
-    IO.write("\r⏳ Trip #{trip_id} remaining: #{seconds}s   ")
-
+    # Notify only clients and drivers, not the server
     if trip_info do
       notify_user_by_name(trip_info.client, "⏳ Tu viaje #{trip_id} restante: #{seconds}s", state)
 

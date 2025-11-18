@@ -120,7 +120,11 @@ defmodule UrbanFleet.Trip do
 
     # Log and notify
     UrbanFleet.Persistence.log_trip_result(new_state)
-    if Process.whereis(:server), do: send(:server, {:trip_cancelled, new_state})
+
+    # Send notification to server
+    if Process.whereis(:server) do
+      send(:server, {:trip_cancelled, new_state})
+    end
 
     {:reply, {:ok, new_state}, new_state}
   end
@@ -136,24 +140,23 @@ defmodule UrbanFleet.Trip do
     remaining_ms = DateTime.diff(state.end_time, DateTime.utc_now(), :millisecond)
     remaining_ms = if remaining_ms < 0, do: 0, else: remaining_ms
 
+    # Send tick notification to server (which will forward to clients)
     if Process.whereis(:server) do
       send(:server, {:trip_tick, state.id, remaining_ms})
     end
 
     # continuar ticks mientras no haya finalizado
-    cond do
-      remaining_ms > 0 ->
-        Process.send_after(self(), :tick, @tick_interval)
-        {:noreply, state}
-
-      true ->
-        {:noreply, state}
+    if remaining_ms > 0 do
+      Process.send_after(self(), :tick, @tick_interval)
+      {:noreply, state}
+    else
+      {:noreply, state}
     end
   end
 
   @impl true
   def handle_info(:check_expiration, %{status: :available} = state) do
-    # Trip expired without driver - no client penalty per request
+    # Trip expired without driver
     Logger.warn("Trip #{state.id} expired without driver")
 
     new_state = %{state |
@@ -164,8 +167,10 @@ defmodule UrbanFleet.Trip do
     # Log result
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    # Notify server (so admin/CLI sees it)
-    if Process.whereis(:server), do: send(:server, {:trip_expired, new_state})
+    # Notify server (so admin/CLI and clients see it)
+    if Process.whereis(:server) do
+      send(:server, {:trip_expired, new_state})
+    end
 
     # Stop the GenServer after logging
     {:stop, :normal, new_state}
@@ -192,8 +197,10 @@ defmodule UrbanFleet.Trip do
     # Log result
     UrbanFleet.Persistence.log_trip_result(new_state)
 
-    # Notify server (so admin/CLI sees it)
-    if Process.whereis(:server), do: send(:server, {:trip_completed, new_state})
+    # Notify server (so admin/CLI and clients see it)
+    if Process.whereis(:server) do
+      send(:server, {:trip_completed, new_state})
+    end
 
     # Stop the GenServer after completion
     {:stop, :normal, new_state}
