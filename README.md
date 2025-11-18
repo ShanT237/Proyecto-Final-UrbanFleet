@@ -13,7 +13,7 @@ Tiene sistema de puntuación y ranking global
 Te conectas con connect usuario contraseña
 Si eres cliente, pides un viaje con request_trip origen=Parque destino=Centro
 Si eres conductor, ves los viajes disponibles con list_trips y aceptas uno
-El viaje se simula con un timer de 20 segundos
+El coductor y el cliente pueden cancelar viajes con cancel <id>
 Al terminar, ambos ganan puntos (o pierdes si nadie acepta tu viaje)
 
 Puntos:
