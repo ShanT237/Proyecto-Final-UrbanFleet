@@ -1,52 +1,52 @@
 defmodule UrbanFleet do
   @moduledoc """
-  UrbanFleet - A multiplayer taxi fleet simulation system.
+  UrbanFleet - Sistema de simulación de una flota de taxis multijugador.
 
-  This system simulates a real-time taxi dispatch service where:
-  - Clients can request trips
-  - Drivers can accept and complete trips
-  - Points are awarded for successful trips
-  - All operations run concurrently using OTP
+  Este sistema simula un servicio de despacho de taxis en tiempo real donde:
+  - Clientes pueden solicitar viajes
+  - Conductores pueden aceptar y completar viajes
+  - Se otorgan puntos por viajes exitosos
+  - Todas las operaciones corren concurrentemente usando OTP
 
-  ## Usage
+  ## Uso
 
-  Start the application:
+  Iniciar la aplicación:
   ```
   iex -S mix
   ```
 
-  The CLI will start automatically. Available commands:
+  La interfaz CLI se inicia automáticamente. Comandos disponibles:
 
-  ### Connection
-  - `connect <username> <password> <client|driver>` - Register or login
-  - `disconnect` - Disconnect from the system
+  ### Conexión
+  - `connect <username> <password> <client|driver>` - Registrar o iniciar sesión
+  - `disconnect` - Desconectarse del sistema
 
-  ### Client Commands
-  - `request_trip origen=<location> destino=<location>` - Request a trip
-  - `my_score` - View your score
+  ### Comandos para clientes
+  - `request_trip origen=<location> destino=<location>` - Solicitar un viaje
+  - `my_score` - Ver tu puntuación
 
-  ### Driver Commands
-  - `list_trips` - List available trips
-  - `accept_trip <trip_id>` - Accept a trip
-  - `my_score` - View your score
+  ### Comandos para conductores
+  - `list_trips` - Listar viajes disponibles
+  - `accept_trip <trip_id>` - Aceptar un viaje
+  - `my_score` - Ver tu puntuación
 
-  ### General Commands
-  - `ranking [client|driver]` - View rankings
-  - `help` - Show help
-  - `exit` - Exit application
+  ### Comandos generales
+  - `ranking [client|driver]` - Ver rankings
+  - `help` - Mostrar ayuda
+  - `exit` - Salir de la aplicación
 
-  ## Scoring System
-  - Client completes trip: +10 points
-  - Driver completes trip: +15 points
-  - Trip expires without driver: Client loses -5 points
+  ## Sistema de puntuación
+  - Cliente completa viaje: +10 puntos
+  - Conductor completa viaje: +15 puntos
+  - Viaje expira sin conductor: Cliente pierde -5 puntos
 
-  ## Architecture
+  ## Arquitectura
 
-  The system uses:
-  - GenServers for stateful processes (trips, users)
-  - DynamicSupervisor for managing trip processes
-  - Registry for trip process lookup
-  - File-based persistence for users and results
+  El sistema utiliza:
+  - GenServers para procesos con estado (viajes, usuarios)
+  - DynamicSupervisor para gestionar procesos de viaje
+  - Registry para localizar procesos de viaje
+  - Persistencia en archivos para usuarios y resultados
   """
 
   @doc """
@@ -57,19 +57,19 @@ defmodule UrbanFleet do
   end
 
   @doc """
-  Displays application information
+  Muestra información de la aplicación
   """
   def info do
     IO.puts("""
 
     ╔════════════════════════════════════════╗
     ║         URBANFLEET v#{version()}           ║
-    ║    Multiplayer Taxi Fleet System      ║
+    ║    Sistema Multijugador de Flota de Taxis      ║
     ╚════════════════════════════════════════╝
 
-    Status: #{if running?(), do: "Running ✓", else: "Stopped ✗"}
+    Estado: #{if running?(), do: "En ejecución ✓", else: "Detenido ✗"}
 
-    Type 'help' for available commands.
+    Escribe 'help' para ver los comandos disponibles.
     """)
   end
 

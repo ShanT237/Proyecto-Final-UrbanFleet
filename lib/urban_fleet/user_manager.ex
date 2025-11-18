@@ -4,7 +4,7 @@ defmodule UrbanFleet.UserManager do
 
   @users_file "data/users.dat"
 
-  # Client API
+  # API del cliente (funciones públicas)
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -38,12 +38,12 @@ defmodule UrbanFleet.UserManager do
     GenServer.cast(__MODULE__, {:driver_cancelled, driver_username, trip_id})
   end
 
-  # Server Callbacks
+  # Callbacks del servidor
 
   @impl true
   def init(_) do
     users = load_users()
-    Logger.info("UserManager initialized with #{map_size(users)} users")
+    Logger.info("UserManager inicializado con #{map_size(users)} usuarios")
     {:ok, users}
   end
 
@@ -51,7 +51,7 @@ defmodule UrbanFleet.UserManager do
   def handle_call({:register_or_login, username, password, role}, _from, users) do
     case Map.get(users, username) do
       nil ->
-        # Register new user
+        # Registrar nuevo usuario
         new_user = %{
           username: username,
           password: hash_password(password),
@@ -60,13 +60,13 @@ defmodule UrbanFleet.UserManager do
         }
         new_users = Map.put(users, username, new_user)
         save_users(new_users)
-        Logger.info("New user registered: #{username} (#{role})")
+        Logger.info("Nuevo usuario registrado: #{username} (#{role})")
         {:reply, {:ok, :registered, new_user}, new_users}
 
       user ->
-        # Login existing user
+        # Iniciar sesión de usuario existente
         if verify_password(password, user.password) do
-          Logger.info("User logged in: #{username}")
+          Logger.info("Usuario inició sesión: #{username}")
           {:reply, {:ok, :logged_in, user}, users}
         else
           {:reply, {:error, :invalid_password}, users}
@@ -129,7 +129,7 @@ defmodule UrbanFleet.UserManager do
     {:noreply, new_users}
   end
 
-  # Private Helper Functions
+  # Funciones auxiliares privadas
 
   defp update_score(users, username, points) do
     case Map.get(users, username) do
@@ -143,7 +143,7 @@ defmodule UrbanFleet.UserManager do
   end
 
   defp hash_password(password) do
-    # Simple hash - in production use proper hashing like Argon2
+    # Hash simple - en producción usar Argon2 u otro algoritmo seguro
     :crypto.hash(:sha256, password) |> Base.encode64()
   end
 

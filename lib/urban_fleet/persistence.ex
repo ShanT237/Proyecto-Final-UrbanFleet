@@ -1,13 +1,13 @@
 defmodule UrbanFleet.Persistence do
   @moduledoc """
-  persistencia
+  Módulo de persistencia para resultados de viajes.
   """
 
   @results_file "data/results.log"
 
   @doc """
-  Logs a trip result to the results.log file
-  Format: date; client=<name>; conductor=<name>; origen=<loc>; destino=<loc>; status=<status>
+  Registra el resultado de un viaje en el archivo results.log
+  Formato: fecha; cliente=<name>; conductor=<name>; origen=<loc>; destino=<loc>; status=<status>
   """
   def log_trip_result(trip) do
     timestamp = format_datetime(trip.completed_at || DateTime.utc_now())
@@ -23,7 +23,7 @@ defmodule UrbanFleet.Persistence do
   end
 
   @doc """
-  Lee los resultados de los viajes from results.log
+  Lee los resultados de los viajes desde results.log
   """
   def read_results do
     case File.read(@results_file) do

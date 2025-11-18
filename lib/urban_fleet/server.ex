@@ -3,7 +3,7 @@ defmodule UrbanFleet.Server do
   require Logger
 
   # ==============================
-  # CLIENT API
+  # API PÚBLICA
   # ==============================
 
   def start_link(_args) do
@@ -24,12 +24,12 @@ end
 
 
   # ==============================
-  # SERVER CALLBACKS
+  # CALLBACKS DEL SERVIDOR
   # ==============================
 
   @impl true
   def init(_) do
-    Logger.info("UrbanFleet Server started")
+    Logger.info("UrbanFleet Server iniciado")
     {:ok, %{current_user: nil, sessions: %{}}}
   end
 
@@ -45,7 +45,7 @@ end
     {:noreply, state}
   end
 
-  # --- NUEVO: helper definido temprano para evitar error de referencia ---
+  # --- Helper definido temprano para evitar error de referencia ---
   defp format_datetime(dt) when is_struct(dt, DateTime) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   end
@@ -178,7 +178,7 @@ end
   end
 
   # ==============================
-  # COMMAND PROCESSING
+  # PROCESAMIENTO DE COMANDOS
   # ==============================
 
   defp process_command("", user), do: {:continue, user}
@@ -202,7 +202,7 @@ end
 
   defp process_command("exit", _), do: :exit
 
-  # --- SERVER COMMANDS (ADMIN) ---
+  # --- COMANDOS DEL SERVIDOR (ADMIN) ---
   defp process_command("add_zone " <> zone, user) do
     UrbanFleet.Location.add_location(String.trim(zone))
     IO.puts("✅ Zona '#{zone}' agregada correctamente.")
@@ -233,8 +233,8 @@ end
   end
 
   # ==============================
-  # REMOTE COMMAND PROCESSING (RPC from clients)
-  # Each function returns {:ok, message, new_client_state} or {:error, message, client_state}
+  # PROCESAMIENTO DE COMANDOS REMOTOS (RPC desde clientes)
+  # Cada función devuelve {:ok, mensaje, nuevo_estado_cliente} o {:error, mensaje, estado_cliente}
   # ==============================
 
   # Aliases / comandos cortos (añadir cancel alias)
@@ -400,7 +400,7 @@ end
   end
 
   # ==============================
-  # HELPER FUNCTIONS
+  # FUNCIONES AUXILIARES
   # ==============================
 
   defp show_server_banner do
@@ -430,7 +430,8 @@ end
     ╔════════════════════════════════════════╗
     ║           📱 COMANDOS CLIENTE           ║
     ╚════════════════════════════════════════╝
-    request_trip origen=<loc> destino=<loc> - Solicitar viaje
+    request <origin> <dest>                  - Solicitar viaje (forma corta)
+    request_trip origen=<loc> destino=<loc> - Solicitar viaje (forma larga)
     my_score                                - Ver tu puntuación
     ranking                                 - Ver ranking global
     disconnect                              - Desconectarse
@@ -487,13 +488,17 @@ end
 
       if origin && destination, do: {:ok, origin, destination}, else: :error
     else
-      # Forma corta: "request <dest>"
-      dest = List.first(parts) |> to_string() |> String.trim()
-      if dest != "" do
-        origin = "Centro"  # origen por defecto
-        {:ok, origin, dest}
-      else
-        :error
+      # Forma corta: aceptar "origin dest" o solo "dest" (mantener compatibilidad)
+      case parts do
+        [origin, dest | _rest] ->
+          {:ok, origin, dest}
+
+        [single_dest] when single_dest != "" ->
+          origin = "Centro"  # origen por defecto si solo se dio destino
+          {:ok, origin, single_dest}
+
+        _ ->
+          :error
       end
     end
   end
@@ -583,7 +588,7 @@ defp process_server_command(cmd) do
   :continue
 end
 
-# --- NUEVO: helper para notificar usuarios registrados ---
+# --- helper para notificar usuarios registrados ---
 # Busca username en state.sessions y envía la notificación al nodo o pid correspondiente.
 defp notify_user_by_name(username, message, state) when is_binary(username) do
   case Map.get(state.sessions, username) do
@@ -604,4 +609,5 @@ defp notify_user_by_name(username, message, state) when is_binary(username) do
       :no_session
   end
 end
+
 end

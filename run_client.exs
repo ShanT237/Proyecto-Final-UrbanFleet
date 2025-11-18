@@ -4,25 +4,25 @@ defmodule UrbanFleet.Client do
   def start do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║       🚗 URBANFLEET CLIENT SYSTEM       ║
+    ║       🚗 SISTEMA CLIENTE URBANFLEET     ║
     ╚════════════════════════════════════════╝
-    Welcome to UrbanFleet!
-    Type 'help' to view available commands.
+    ¡Bienvenido a UrbanFleet!
+    Escribe 'help' para ver los comandos disponibles.
     """)
 
     # Intentar conectar al servidor
     if Node.connect(:"server@localhost") do
-      IO.puts("✅ Connected to UrbanFleet Server.")
+      IO.puts("✅ Conectado al Servidor UrbanFleet.")
       case :rpc.call(:"server@localhost", Process, :whereis, [:server]) do
         pid when is_pid(pid) ->
-          IO.puts("🖥️  Remote server process found.")
+          IO.puts("🖥️  Proceso remoto del servidor encontrado.")
           command_loop(pid, nil)
 
         _ ->
-          IO.puts("⚠️ Server process not found. Make sure it's running.")
+          IO.puts("⚠️ Proceso del servidor no encontrado. Asegúrate de que esté en ejecución.")
       end
     else
-      IO.puts("❌ Could not connect to remote node (:\"server@localhost\")")
+      IO.puts("❌ No se pudo conectar al nodo remoto (:\"server@localhost\")")
     end
   end
 
@@ -112,9 +112,9 @@ defmodule UrbanFleet.Client do
   defp show_help(%{role: :client}) do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║          📱 CLIENT COMMANDS             ║
+    ║          📱 COMANDOS DEL CLIENTE        ║
     ╚════════════════════════════════════════╝
-    request <dest>                (or: request_trip origen=<loc> destino=<loc>) - Pedir viaje (destino sencillo)
+    request <origin> <dest>        (or: request_trip origen=<loc> destino=<loc>) - Pedir viaje
     my_score      (or: score)                                            - Ver tu puntuación
     ranking       (or: rank)                                             - Ver ranking global
     disconnect                                                             - Desconectarse
@@ -126,7 +126,7 @@ defmodule UrbanFleet.Client do
   defp show_help(%{role: :driver}) do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║          🚕 DRIVER COMMANDS             ║
+    ║          🚕 COMANDOS DEL DRIVER         ║
     ╚════════════════════════════════════════╝
     list_trips   (or: trips)        - View available trips
     accept_trip <id> (or: accept)   - Accept a trip
@@ -142,7 +142,7 @@ defmodule UrbanFleet.Client do
   defp show_help(nil) do
     IO.puts("""
     ╔════════════════════════════════════════╗
-    ║         👋 WELCOME TO URBANFLEET        ║
+    ║         👋 BIENVENIDO A URBANFLEET      ║
     ╚════════════════════════════════════════╝
     connect <user> <pass> <client|driver> - Log in or register
     help                                  - Show this menu

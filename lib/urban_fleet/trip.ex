@@ -2,10 +2,10 @@ defmodule UrbanFleet.Trip do
   use GenServer
   require Logger
 
-  @trip_duration 60_000 # 60 seconds in milliseconds
-  @tick_interval 1_000  # 1 second ticks for countdown
+  @trip_duration 60_000 # 60 segundos en milisegundos
+  @tick_interval 1_000  # ticks de 1 segundo para la cuenta regresiva
 
-  # Ensure dynamic children are temporary (don't restart after normal exit)
+  # Asegurar hijos dinámicos como temporales (no reiniciar tras salida normal)
   def child_spec(arg) do
     %{
       id: __MODULE__,
@@ -67,11 +67,11 @@ defmodule UrbanFleet.Trip do
       end_time: end_time
     })
 
-    # Schedule expiration check and first tick
+    # Programar comprobación de expiración y primer tick
     Process.send_after(self(), :check_expiration, @trip_duration)
     Process.send_after(self(), :tick, @tick_interval)
 
-    Logger.info("Trip #{state.id} created: #{state.origin} -> #{state.destination}")
+    Logger.info("Trip #{state.id} creado: #{state.origin} -> #{state.destination}")
 
     {:ok, state}
   end
@@ -130,7 +130,7 @@ defmodule UrbanFleet.Trip do
     {:reply, {:error, :cannot_cancel}, state}
   end
 
-  # Ticks: send remaining time updates to server (every second)
+  # Ticks: enviar actualizaciones de tiempo restante al servidor (cada segundo)
   @impl true
   def handle_info(:tick, state) do
     remaining_ms = DateTime.diff(state.end_time, DateTime.utc_now(), :millisecond)
@@ -140,7 +140,7 @@ defmodule UrbanFleet.Trip do
       send(:server, {:trip_tick, state.id, remaining_ms})
     end
 
-    # continue ticking while not finished
+    # continuar ticks mientras no haya finalizado
     cond do
       remaining_ms > 0 ->
         Process.send_after(self(), :tick, @tick_interval)
