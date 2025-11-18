@@ -269,29 +269,55 @@ defmodule UrbanFleet.Server do
 
   # cancel_trip -> for clients (cancel before driver accepts)
   defp process_remote_command("cancel_trip " <> trip_id, %{role: :client, username: username} = user) do
-    case UrbanFleet.Trip.cancel_trip_by_client(String.trim(trip_id), username) do
-      {:ok, _trip} ->
-        {:ok, "🛑 Viaje #{String.trim(trip_id)} cancelado exitosamente.", user}
+    trip_id = String.trim(trip_id)
 
-      {:error, :cannot_cancel} ->
-        {:error, "⚠️ No puedes cancelar este viaje (ya tiene conductor asignado o no es tuyo).", user}
+    # Primero verificar si el viaje existe
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] ->
+        {:error, "⚠️ El viaje #{trip_id} no existe o ya finalizó.", user}
 
-      {:error, reason} ->
-        {:error, "❌ Error al cancelar viaje: #{inspect(reason)}", user}
+      [{pid, _}] ->
+        if Process.alive?(pid) do
+          case UrbanFleet.Trip.cancel_trip_by_client(trip_id, username) do
+            {:ok, _trip} ->
+              {:ok, "🛑 Viaje #{trip_id} cancelado exitosamente.", user}
+
+            {:error, :cannot_cancel} ->
+              {:error, "⚠️ No puedes cancelar este viaje (ya tiene conductor asignado o no es tuyo).", user}
+
+            {:error, reason} ->
+              {:error, "❌ Error al cancelar viaje: #{inspect(reason)}", user}
+          end
+        else
+          {:error, "⚠️ El viaje #{trip_id} ya finalizó.", user}
+        end
     end
   end
 
   # cancel_trip -> for drivers (cancel after accepting)
   defp process_remote_command("cancel_trip " <> trip_id, %{role: :driver} = user) do
-    case UrbanFleet.Trip.cancel_trip(String.trim(trip_id), user.username) do
-      {:ok, _trip} ->
-        {:ok, "🛑 Viaje #{String.trim(trip_id)} cancelado. Penalización aplicada: -10 puntos.", user}
+    trip_id = String.trim(trip_id)
 
-      {:error, :cannot_cancel} ->
-        {:error, "⚠️ No puedes cancelar este viaje (no estás asignado o no está en progreso).", user}
+    # Primero verificar si el viaje existe
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] ->
+        {:error, "⚠️ El viaje #{trip_id} no existe o ya finalizó.", user}
 
-      {:error, reason} ->
-        {:error, "❌ Error al cancelar viaje: #{inspect(reason)}", user}
+      [{pid, _}] ->
+        if Process.alive?(pid) do
+          case UrbanFleet.Trip.cancel_trip(trip_id, user.username) do
+            {:ok, _trip} ->
+              {:ok, "🛑 Viaje #{trip_id} cancelado. Penalización aplicada: -10 puntos.", user}
+
+            {:error, :cannot_cancel} ->
+              {:error, "⚠️ No puedes cancelar este viaje (no estás asignado o no está en progreso).", user}
+
+            {:error, reason} ->
+              {:error, "❌ Error al cancelar viaje: #{inspect(reason)}", user}
+          end
+        else
+          {:error, "⚠️ El viaje #{trip_id} ya finalizó.", user}
+        end
     end
   end
 
