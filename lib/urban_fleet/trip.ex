@@ -22,19 +22,70 @@ defmodule UrbanFleet.Trip do
   end
 
   def get_state(trip_id) do
-    GenServer.call(via_tuple(trip_id), :get_state)
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] -> {:error, :trip_not_found}
+      [{pid, _}] -> 
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(pid, :get_state)
+          catch
+            :exit, _ -> {:error, :trip_not_found}
+          end
+        else
+          {:error, :trip_not_found}
+        end
+    end
   end
 
   def accept_trip(trip_id, driver_username) do
-    GenServer.call(via_tuple(trip_id), {:accept_trip, driver_username})
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] -> 
+        {:error, :trip_not_available}
+      [{pid, _}] -> 
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(via_tuple(trip_id), {:accept_trip, driver_username})
+          catch
+            :exit, _ -> {:error, :trip_not_available}
+          end
+        else
+          {:error, :trip_not_available}
+        end
+    end
   end
 
   def cancel_trip(trip_id, driver_username) do
-    GenServer.call(via_tuple(trip_id), {:cancel_trip_by_driver, driver_username})
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] -> 
+        {:error, :trip_not_found}
+      [{pid, _}] -> 
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(via_tuple(trip_id), {:cancel_trip_by_driver, driver_username})
+          catch
+            :exit, _ -> {:error, :trip_not_found}
+          end
+        else
+          {:error, :trip_not_found}
+        end
+    end
   end
 
   def cancel_trip_by_client(trip_id, client_username) do
-    GenServer.call(via_tuple(trip_id), {:cancel_trip_by_client, client_username})
+    case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
+      [] -> 
+        {:error, :trip_not_found}
+      [{pid, _}] -> 
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(via_tuple(trip_id), {:cancel_trip_by_client, client_username})
+          catch
+            :exit, _ -> {:error, :trip_not_found}
+          end
+        else
+          {:error, :trip_not_found}
+        end
+    end
   end
 
   def list_available do
@@ -43,10 +94,9 @@ defmodule UrbanFleet.Trip do
 
     trip_ids
     |> Enum.map(fn trip_id ->
-      try do
-        get_state(trip_id)
-      rescue
-        _ -> nil
+      case get_state(trip_id) do
+        {:error, _} -> nil
+        state -> state
       end
     end)
     |> Enum.filter(fn
