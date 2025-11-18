@@ -103,12 +103,12 @@ defmodule UrbanFleet do
 
     IO.puts("""
 
-    System Statistics
-    ═════════════════
-    Active Trips: #{stats.active_trips}
-    Total Completed: #{stats.total_trips_completed}
-    Completion Rate: #{stats.completion_rate}%
-    Expired: #{stats.trips_expired}
+    Estadísticas del Sistema
+    ════════════════════════
+    Viajes Activos: #{stats.active_trips}
+    Total Completados: #{stats.total_trips_completed}
+    Tasa de Completación: #{stats.completion_rate}%
+    Expirados: #{stats.trips_expired}
     """)
   end
 
@@ -125,8 +125,8 @@ defmodule UrbanFleet do
   def show_locations do
     locations = locations()
 
-    IO.puts("\nValid Locations:")
-    IO.puts("═══════════════")
+    IO.puts("\nZonas Válidas:")
+    IO.puts("══════════════")
     Enum.each(locations, fn loc ->
       IO.puts("  • #{loc}")
     end)
