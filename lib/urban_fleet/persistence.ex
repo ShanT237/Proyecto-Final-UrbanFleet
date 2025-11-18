@@ -48,8 +48,8 @@ defmodule UrbanFleet.Persistence do
     results = read_results()
 
     total = length(results)
-    completed = Enum.count(results, &(&1.status == "Completado"))
-    expired = Enum.count(results, &(&1.status == "Expirado"))
+    completed = Enum.count(results, &(&1["status"]== "Completado"))
+    expired = Enum.count(results, &(&1["status"] == "Expirado"))
 
     %{
       total: total,
