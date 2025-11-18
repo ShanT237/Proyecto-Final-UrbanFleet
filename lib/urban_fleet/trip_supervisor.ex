@@ -44,17 +44,22 @@ defmodule UrbanFleet.TripSupervisor do
   end
 
   @doc """
-  Lista todos los viajes activos.
+  Lista todos los viajes activos con manejo de errores robusto.
   """
   def list_all_trips do
     DynamicSupervisor.which_children(__MODULE__)
     |> Enum.map(fn {_, pid, _, _} ->
       try do
         if Process.alive?(pid) do
-          GenServer.call(pid, :get_state)
+          case GenServer.call(pid, :get_state, 1000) do
+            state when is_map(state) -> state
+            _ -> nil
+          end
         else
           nil
         end
+      catch
+        :exit, _ -> nil
       rescue
         _ -> nil
       end
@@ -69,10 +74,22 @@ defmodule UrbanFleet.TripSupervisor do
     DynamicSupervisor.count_children(__MODULE__)
   end
 
+  @doc """
+  Verifica si un cliente tiene un viaje activo de forma segura.
+  """
   defp client_has_active_trip?(client_username) do
-    list_all_trips()
-    |> Enum.any?(fn trip ->
-      trip.client == client_username and trip.status in [:available, :in_progress]
+    # Usar Registry directamente para evitar race conditions
+    trip_ids = Registry.select(UrbanFleet.TripRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+
+    Enum.any?(trip_ids, fn trip_id ->
+      case UrbanFleet.Trip.get_state(trip_id) do
+        {:error, _} ->
+          false
+        state when is_map(state) ->
+          state.client == client_username and state.status in [:available, :in_progress]
+        _ ->
+          false
+      end
     end)
   end
 

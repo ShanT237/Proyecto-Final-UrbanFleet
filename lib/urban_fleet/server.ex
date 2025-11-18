@@ -129,6 +129,171 @@ defmodule UrbanFleet.Server do
     {:noreply, state}
   end
 
+
+  # ============================================================
+# NUEVOS HANDLERS PARA MANEJAR ERRORES
+# ============================================================
+
+# Handler para cancelación por cliente
+@impl true
+def handle_info({:trip_cancelled_by_client, trip_state}, state) do
+  msg = "🛑 Viaje cancelado por cliente: #{trip_state.id} | Cliente: #{trip_state.client}"
+  IO.puts("\n" <> msg)
+
+  Logger.info("Enviando notificación de cancelación al cliente: #{trip_state.client}")
+  notify_user_by_name(trip_state.client, "\n🛑 Cancelaste el viaje #{trip_state.id}.\n", state)
+
+  {:noreply, state}
+end
+
+# ============================================================
+# MEJORAS EN FUNCIONES EXISTENTES
+# ============================================================
+
+# Mejorar parse_trip_args para validar "Centro"
+defp parse_trip_args(args) do
+  parts = String.split(args)
+
+  if Enum.any?(parts, &String.contains?(&1, "=")) do
+    origin =
+      Enum.find_value(parts, fn part ->
+        case String.split(part, "=") do
+          ["origen", loc] -> loc
+          _ -> nil
+        end
+      end)
+
+    destination =
+      Enum.find_value(parts, fn part ->
+        case String.split(part, "=") do
+          ["destino", loc] -> loc
+          _ -> nil
+        end
+      end)
+
+    if origin && destination, do: {:ok, origin, destination}, else: :error
+  else
+    case parts do
+      [origin, dest | _rest] ->
+        {:ok, origin, dest}
+
+      [single_dest] when single_dest != "" ->
+        # Validar que "Centro" exista antes de usarlo
+        valid_locations = UrbanFleet.Location.list_locations()
+        if "Centro" in valid_locations do
+          {:ok, "Centro", single_dest}
+        else
+          # Usar la primera ubicación disponible como fallback
+          case valid_locations do
+            [first | _] -> {:ok, first, single_dest}
+            [] -> :error
+          end
+        end
+
+      _ ->
+        :error
+    end
+  end
+end
+
+# Mejorar show_users para manejar errores
+defp process_server_command("show_users") do
+  IO.puts("\n📋 Usuarios registrados:\n")
+
+  try do
+    users = :sys.get_state(UrbanFleet.UserManager)
+
+    if map_size(users) == 0 do
+      IO.puts("  (No hay usuarios registrados)")
+    else
+      users
+      |> Map.values()
+      |> Enum.each(fn u ->
+        IO.puts("• #{u.username} (#{u.role}) - #{u.score} puntos")
+      end)
+    end
+  catch
+    :exit, reason ->
+      IO.puts("⚠️ Error al obtener usuarios: #{inspect(reason)}")
+  end
+
+  :continue
+end
+
+# Mejorar notify_user_by_name con timeout
+defp notify_user_by_name(username, message, state) when is_binary(username) do
+  case Map.get(state.sessions, username) do
+    nil ->
+      Logger.debug("No se encontró sesión para el usuario: #{username}")
+      :no_session
+
+    node when is_atom(node) ->
+      Logger.debug("Enviando notificación a #{username} en el nodo #{inspect(node)}")
+
+      # Usar spawn para evitar bloquear el servidor si RPC falla
+      spawn(fn ->
+        try do
+          :rpc.call(node, UrbanFleet.Client, :notify, [message], 2000)
+        catch
+          :exit, reason ->
+            Logger.warn("Falló notificación RPC a #{username}: #{inspect(reason)}")
+        end
+      end)
+
+      :ok
+
+    pid when is_pid(pid) ->
+      if Process.alive?(pid) do
+        send(pid, {:notify, message})
+        :ok
+      else
+        Logger.warn("Proceso muerto para sesión de #{username}")
+        :no_session
+      end
+
+    other ->
+      Logger.warn("Tipo de sesión desconocido para #{username}: #{inspect(other)}")
+      :no_session
+  end
+end
+
+# ============================================================
+# MONITOR DE SESIONES (OPCIONAL PERO RECOMENDADO)
+# ============================================================
+
+# Agregar monitoreo de nodos clientes
+@impl true
+def handle_info({:nodedown, node}, state) do
+  Logger.info("Nodo cliente desconectado: #{inspect(node)}")
+
+  # Limpiar sesiones del nodo caído
+  new_sessions = state.sessions
+  |> Enum.reject(fn {_username, session_node} -> session_node == node end)
+  |> Map.new()
+
+  {:noreply, %{state | sessions: new_sessions}}
+end
+
+@impl true
+def handle_info({:nodeup, node}, state) do
+  Logger.info("Nodo cliente conectado: #{inspect(node)}")
+  {:noreply, state}
+end
+
+# Modificar register_client para monitorear nodo
+@impl true
+def handle_call({:register_client, %{username: username} = _user_map, client_node}, _from, state) do
+  sessions = Map.put(state.sessions, username, client_node)
+
+  # Monitorear el nodo si no lo estamos haciendo ya
+  unless client_node in Node.list(:connected) do
+    :net_kernel.monitor_nodes(true)
+  end
+
+  Logger.info("Cliente registrado: #{username} en #{inspect(client_node)}")
+  {:reply, :ok, %{state | sessions: sessions}}
+end
+
   # ==============================
   # BUCLE DEL CLI
   # ==============================

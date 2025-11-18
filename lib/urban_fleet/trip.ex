@@ -24,7 +24,7 @@ defmodule UrbanFleet.Trip do
   def get_state(trip_id) do
     case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
       [] -> {:error, :trip_not_found}
-      [{pid, _}] -> 
+      [{pid, _}] ->
         if Process.alive?(pid) do
           try do
             GenServer.call(pid, :get_state)
@@ -39,9 +39,9 @@ defmodule UrbanFleet.Trip do
 
   def accept_trip(trip_id, driver_username) do
     case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
-      [] -> 
+      [] ->
         {:error, :trip_not_available}
-      [{pid, _}] -> 
+      [{pid, _}] ->
         if Process.alive?(pid) do
           try do
             GenServer.call(via_tuple(trip_id), {:accept_trip, driver_username})
@@ -56,9 +56,9 @@ defmodule UrbanFleet.Trip do
 
   def cancel_trip(trip_id, driver_username) do
     case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
-      [] -> 
+      [] ->
         {:error, :trip_not_found}
-      [{pid, _}] -> 
+      [{pid, _}] ->
         if Process.alive?(pid) do
           try do
             GenServer.call(via_tuple(trip_id), {:cancel_trip_by_driver, driver_username})
@@ -73,9 +73,9 @@ defmodule UrbanFleet.Trip do
 
   def cancel_trip_by_client(trip_id, client_username) do
     case Registry.lookup(UrbanFleet.TripRegistry, trip_id) do
-      [] -> 
+      [] ->
         {:error, :trip_not_found}
-      [{pid, _}] -> 
+      [{pid, _}] ->
         if Process.alive?(pid) do
           try do
             GenServer.call(via_tuple(trip_id), {:cancel_trip_by_client, client_username})
@@ -112,17 +112,19 @@ defmodule UrbanFleet.Trip do
     now = DateTime.utc_now()
     end_time = DateTime.add(now, div(@trip_duration, 1000), :second)
 
+    # Programar comprobación de expiración y guardar referencia
+    expiration_timer = Process.send_after(self(), :check_expiration, @trip_duration)
+
     state = Map.merge(trip_data, %{
       status: :available,
       driver: nil,
       created_at: now,
       started_at: nil,
       completed_at: nil,
-      end_time: end_time
+      end_time: end_time,
+      expiration_timer: expiration_timer,
+      completion_timer: nil
     })
-
-    # Programar solo la comprobación de expiración (sin ticks)
-    Process.send_after(self(), :check_expiration, @trip_duration)
 
     Logger.info("Viaje #{state.id} creado: #{state.origin} -> #{state.destination}")
 
