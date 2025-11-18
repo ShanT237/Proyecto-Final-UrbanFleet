@@ -49,8 +49,13 @@ defmodule UrbanFleet.Client do
 
     case input do
       nil ->
+        # EOF (Ctrl+D) -> asegurarse de desregistrar y cerrar cliente
+        if user && Map.get(user, :username) do
+          :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
+        end
+        Node.disconnect(:"server@localhost")
         IO.puts("\n👋 Cerrando cliente...")
-        :ok
+        System.halt(0)
 
       raw ->
         cmd = String.trim(raw)
@@ -60,7 +65,13 @@ defmodule UrbanFleet.Client do
             command_loop(pid, user)
 
           "exit" ->
+            # Desregistrar en server si corresponde y finalizar la VM del cliente
+            if user && Map.get(user, :username) do
+              :rpc.call(:"server@localhost", GenServer, :call, [:server, {:unregister_client, user.username}])
+            end
+            Node.disconnect(:"server@localhost")
             IO.puts("👋 Desconectando cliente...")
+            System.halt(0)
 
           "help" ->
             show_help(user)

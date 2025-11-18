@@ -575,7 +575,12 @@ defp process_server_command("clear_screen") do
   :continue
 end
 
-defp process_server_command("exit"), do: :exit
+defp process_server_command("exit") do
+  # Cerrar la VM para asegurar que el servidor y todos los procesos terminen.
+  IO.puts("🖥️ Servidor detenido. Cerrando aplicación...")
+  System.halt(0)
+end
+
 defp process_server_command(""), do: :continue
 
 defp process_server_command(cmd) do
