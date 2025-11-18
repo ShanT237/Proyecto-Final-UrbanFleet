@@ -146,8 +146,10 @@ defmodule UrbanFleet.Client do
     ║          📱 COMANDOS DEL CLIENTE        ║
     ╚════════════════════════════════════════╝
     request <origin> <dest>        - Solicitar viaje
-    my_score      (or: score)      - Ver tu puntuación
-    ranking       (or: rank)       - Ver ranking global
+    cancel <trip_id>               - Cancelar viaje (antes de asignar conductor)
+    list_zones (o zones)           - Ver zonas disponibles
+    my_score      (o: score)       - Ver tu puntuación
+    ranking       (o: rank)        - Ver ranking global
     disconnect                     - Desconectarse
     help                           - Mostrar esta ayuda
     exit                           - Cerrar sesión
@@ -159,11 +161,12 @@ defmodule UrbanFleet.Client do
     ╔════════════════════════════════════════╗
     ║          🚕 COMANDOS DEL DRIVER         ║
     ╚════════════════════════════════════════╝
-    list_trips   (or: trips)        - Ver viajes disponibles
-    accept_trip <id> (or: accept)   - Aceptar viaje
-    cancel <id>   (or: cancel_trip) - Cancelar viaje aceptado
-    my_score      (or: score)       - Ver tu puntuación
-    ranking driver (or: rank driver)- Ver ranking conductores
+    list_trips   (o: trips)         - Ver viajes disponibles
+    accept_trip <id> (o: accept)    - Aceptar viaje
+    cancel <id>                     - Cancelar viaje aceptado (penalización -10 pts)
+    list_zones   (o: zones)         - Ver zonas disponibles
+    my_score      (o: score)        - Ver tu puntuación
+    ranking driver (o: rank driver) - Ver ranking conductores
     disconnect                      - Desconectarse
     help                            - Mostrar esta ayuda
     exit                            - Cerrar sesión
@@ -182,4 +185,5 @@ defmodule UrbanFleet.Client do
   end
 end
 
+# Iniciar el cliente
 UrbanFleet.Client.start()

@@ -30,7 +30,11 @@ defmodule UrbanFleet.Trip do
   end
 
   def cancel_trip(trip_id, driver_username) do
-    GenServer.call(via_tuple(trip_id), {:cancel_trip, driver_username})
+    GenServer.call(via_tuple(trip_id), {:cancel_trip_by_driver, driver_username})
+  end
+
+  def cancel_trip_by_client(trip_id, client_username) do
+    GenServer.call(via_tuple(trip_id), {:cancel_trip_by_client, client_username})
   end
 
   def list_available do
@@ -94,7 +98,6 @@ defmodule UrbanFleet.Trip do
 
     # Schedule completion after trip duration (from accept)
     Process.send_after(self(), :complete_trip, @trip_duration)
-    # Continue ticks (tick loop already scheduled)
 
     Logger.info("Trip #{state.id} accepted by driver #{driver_username}")
 
@@ -106,9 +109,9 @@ defmodule UrbanFleet.Trip do
     {:reply, {:error, :trip_not_available}, state}
   end
 
-  # Cancelling by driver
+  # Cancelling by driver (trip in progress)
   @impl true
-  def handle_call({:cancel_trip, driver_username}, _from, %{status: :in_progress, driver: driver_username} = state) do
+  def handle_call({:cancel_trip_by_driver, driver_username}, _from, %{status: :in_progress, driver: driver_username} = state) do
     new_state = %{state |
       status: :cancelled,
       completed_at: DateTime.utc_now()
@@ -125,18 +128,42 @@ defmodule UrbanFleet.Trip do
       send(:server, {:trip_cancelled, new_state})
     end
 
-    {:reply, {:ok, new_state}, new_state}
+    Logger.info("Trip #{state.id} cancelled by driver #{driver_username}")
+
+    # Stop the GenServer after cancellation
+    {:stop, :normal, {:ok, new_state}, new_state}
   end
 
   @impl true
-  def handle_call({:cancel_trip, _driver_username}, _from, state) do
+  def handle_call({:cancel_trip_by_driver, _driver_username}, _from, state) do
+    {:reply, {:error, :cannot_cancel}, state}
+  end
+
+  # Cancelling by client (trip available, no driver assigned yet)
+  @impl true
+  def handle_call({:cancel_trip_by_client, client_username}, _from, %{status: :available, client: client_username} = state) do
+    new_state = %{state |
+      status: :cancelled,
+      completed_at: DateTime.utc_now()
+    }
+
+    # Log the cancellation
+    UrbanFleet.Persistence.log_trip_result(new_state)
+
+    Logger.info("Trip #{state.id} cancelled by client #{client_username}")
+
+    # Stop the GenServer after cancellation
+    {:stop, :normal, {:ok, new_state}, new_state}
+  end
+
+  @impl true
+  def handle_call({:cancel_trip_by_client, _client_username}, _from, state) do
     {:reply, {:error, :cannot_cancel}, state}
   end
 
   # Ticks: ya no envían actualizaciones, solo esperamos la finalización
   @impl true
   def handle_info(:tick, state) do
-    # Ya no enviamos ticks al servidor, solo esperamos la finalización del viaje
     {:noreply, state}
   end
 
